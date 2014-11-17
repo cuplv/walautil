@@ -12,12 +12,16 @@ object JavaUtil {
    *  @param classes - list of class names to compile *without* .java extension 
    *  @return true if compilation completed successfully, false otherwise */
   def compile(classes : Iterable[String], options : Iterable[String], printFailureDiagnostics : Boolean = true) : Boolean = {
+    //Compatible with Java 6 
+    val newOptions = options.toList ::: ("-source" :: "1.6" :: "-target" :: "1.6" :: Nil);
     require(classes.forall(c => !c.endsWith(".java")))
     val compiler = ToolProvider.getSystemJavaCompiler()
+    assert(compiler != null, 
+      "Can't find the Java compiler; JAVA_HOME is " + System.getProperty("java.home") + "-- are you using a JRE instead of a JDK?")
     val diagnostics = new DiagnosticCollector[JavaFileObject]
     val fileMgr = compiler.getStandardFileManager(diagnostics, null, null)
     val compilationUnits = fileMgr.getJavaFileObjectsFromStrings(asJavaCollection(classes.map(_ + ".java")))    
-    val task = compiler.getTask(null, fileMgr, diagnostics, asJavaIterable(options), null, compilationUnits)
+    val task = compiler.getTask(null, fileMgr, diagnostics, asJavaIterable(newOptions), null, compilationUnits)
     val res : Boolean = task.call()
     if (printFailureDiagnostics && !res) diagnostics.getDiagnostics().foreach(d => println(d)) 
     res
@@ -83,7 +87,7 @@ object JavaUtil {
     jars.foldLeft (Set.empty[String]) ((added, jar) => {
       jar.entries().foldLeft (added) ((added, e) => {
         val newAdded = added + e.getName()
-        if (newAdded.size != added.size) writeEntry(e, jar.getInputStream(e), jarStream)
+        if (newAdded.size != added.size) writeEntry(new JarEntry(e.getName), jar.getInputStream(e), jarStream)
         else if (duplicateWarning && !e.isDirectory()) println(s"Duplicate entry $e; not adding")
         newAdded
       })

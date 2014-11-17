@@ -71,6 +71,13 @@ object ClassUtil {
     stripWalaLeadingL(className).replace('/', '.').replace('$', '.')
   }
   def walaClassNameToPath(typ : TypeName) : String = stripWalaLeadingL(typ.toString())
+
+
+  def makeTypeRef(typeName : String) : TypeReference =
+    TypeReference.findOrCreate(ClassLoaderReference.Primordial, ClassUtil.walaifyClassName(typeName))
+
+  // bytecodes expect a semicolon after a type; add it
+  def typeRefToBytecodeType(typ : TypeReference) : String = s"${typ.getName().toString()};"
     
   def getNonReceiverParameterTypes(m : IMethod) : Iterable[TypeReference] = getParameterTypesInternal(m, 1)   
   def getParameterTypes(m : IMethod) : Iterable[TypeReference] = getParameterTypesInternal(m, 0)    
