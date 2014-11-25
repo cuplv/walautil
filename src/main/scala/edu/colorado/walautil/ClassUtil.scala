@@ -10,7 +10,7 @@ import com.ibm.wala.shrikeBT.IConditionalBranchInstruction.Operator._
 import com.ibm.wala.shrikeBT.IShiftInstruction.Operator._
 import com.ibm.wala.shrikeBT.IUnaryOpInstruction.Operator._
 import com.ibm.wala.ssa._
-import com.ibm.wala.types.{ClassLoaderReference, MethodReference, TypeName, TypeReference}
+import com.ibm.wala.types._
 
 object ClassUtil {
   
@@ -49,10 +49,9 @@ object ClassUtil {
     case _ => key.toString()
   }
 
-  def isInnerClassThis(f : IField) : Boolean = {
-    val fldName = f.getName.toString
-    fldName.startsWith("this") && fldName.contains("$")
-  }
+  def isInnerClassThis(f : FieldReference) : Boolean = f.getName.toString.startsWith("this$")
+
+  def isInnerClassThis(f : IField) : Boolean = isInnerClassThis(f.getReference)
 
   def isInnerOrEnum(c : IClass) : Boolean = c.getName().toString().contains('$')
   
