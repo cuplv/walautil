@@ -31,8 +31,6 @@ object CFGUtil {
     }
     getWhileRec(Set(startBlk), Set.empty)
   }
-  
-  //def getBlocksSatisfying()
 
   /**
    * @param inclusive if true, include the last blks that fail test 
@@ -51,203 +49,203 @@ object CFGUtil {
       (if (exceptional) cfg.getPredNodes(blk.blk).toList else cfg.getNormalPredecessors(blk.blk).toList)
       .map(blk => new WalaBlock(blk)).toSet, startBlk, cfg, test, inclusive)
 
+  def getFallThroughBlocks(startBlk : WalaBlock, cfg : SSACFG, inclusive : Boolean = false, test : WalaBlock => Boolean =_ => true) : Set[WalaBlock] = {
+    var last : WalaBlock = null
+    // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
+    val fallThrough =
+      getSuccsWhile(startBlk, cfg, (blk => { if (!test(blk)) { last = blk; false } else {
+        val size = getSuccessors(blk, cfg).size
+        if (size <= 1) true
+        else { last = blk; false}
+      }}), inclusive)
+    if (last != null && last != startBlk) fallThrough + last // add last if applicable
+    else fallThrough
+  }
     
-    // TODO: use inclusive?
-    def getFallThroughBlocks(startBlk : WalaBlock, cfg : SSACFG, inclusive : Boolean = false, test : WalaBlock => Boolean =_ => true) : Set[WalaBlock] = {
-      var last : WalaBlock = null
-      // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
-      val fallThrough = 
-        getSuccsWhile(startBlk, cfg, (blk => { if (!test(blk)) { last = blk; false } else { 
-          //val size = cfg.getNormalSuccessors(blk).size()
-          val size = getSuccessors(blk, cfg).size
-          if (size <= 1) true
-          else { last = blk; false}
-        }}), inclusive)
-        if (last != null && last != startBlk) fallThrough + last // add last if applicable
-        else fallThrough
-    } 
-    
-    /**
-     * @return true if @param startBlk falls through to @param targetBlk (that is, if startBlk inevitably transitions
-     * to targetBlk in a non-exceptional execution)
-     */
-    def fallsThroughTo(startBlk : WalaBlock, targetBlk : WalaBlock, cfg : SSACFG) : Boolean = 
-      getFallThroughBlocks(startBlk, cfg).contains(targetBlk)
+  /**
+   * @return true if @param startBlk falls through to @param targetBlk (that is, if startBlk inevitably transitions
+   * to targetBlk in a non-exceptional execution)
+   */
+  def fallsThroughTo(startBlk : WalaBlock, targetBlk : WalaBlock, cfg : SSACFG) : Boolean =
+    getFallThroughBlocks(startBlk, cfg).contains(targetBlk)
       
-    def fallsThroughToConditional(startBlk : WalaBlock, cfg : SSACFG) : Boolean = 
-      getFallThroughBlocks(startBlk, cfg).find(blk => CFGUtil.endsWithConditionalInstr(blk)).isDefined    
+  def fallsThroughToConditional(startBlk : WalaBlock, cfg : SSACFG) : Boolean =
+    getFallThroughBlocks(startBlk, cfg).find(blk => CFGUtil.endsWithConditionalInstr(blk)).isDefined
      
-    def fallsThroughToWithoutLoopConstructs(startBlk : WalaBlock, targetBlk : WalaBlock, 
-        breaksAndContinues : Map[WalaBlock,WalaBlock], cfg : SSACFG) : Boolean = 
-      getFallThroughBlocks(startBlk, cfg, false, blk => !breaksAndContinues.contains(blk)).contains(targetBlk)
+  def fallsThroughToWithoutLoopConstructs(startBlk : WalaBlock, targetBlk : WalaBlock,
+                                          breaksAndContinues : Map[WalaBlock,WalaBlock], cfg : SSACFG) : Boolean =
+  getFallThroughBlocks(startBlk, cfg, false, blk => !breaksAndContinues.contains(blk)).contains(targetBlk)
            
-    def isReachableFrom(targetBlk : WalaBlock, startBlk : WalaBlock, cfg : SSACFG) : Boolean = {
-      getSuccsWhile(startBlk, cfg).contains(targetBlk)
-    }     
+  def isReachableFrom(targetBlk : WalaBlock, startBlk : WalaBlock, cfg : SSACFG) : Boolean =
+    getSuccsWhile(startBlk, cfg).contains(targetBlk)
     
-    def isReachableFromWithoutLoopConstructs(targetBlk : WalaBlock, startBlk : WalaBlock, bodyBlocks : Set[WalaBlock],
-                                             breaksAndContinues : Map[WalaBlock,WalaBlock], cfg : SSACFG,
-                                             inclusive : Boolean = false) : Boolean =
-      getReachableWithoutLoopConstructs(startBlk, breaksAndContinues, bodyBlocks, cfg, inclusive).contains(targetBlk)
+  def isReachableFromWithoutLoopConstructs(targetBlk : WalaBlock, startBlk : WalaBlock, bodyBlocks : Set[WalaBlock],
+                                           breaksAndContinues : Map[WalaBlock,WalaBlock], cfg : SSACFG,
+                                           inclusive : Boolean = false) : Boolean =
+  getReachableWithoutLoopConstructs(startBlk, breaksAndContinues, bodyBlocks, cfg, inclusive).contains(targetBlk)
     
-    def getReachableWithoutLoopConstructs(startBlk : WalaBlock, breaksAndContinues : Map[WalaBlock,WalaBlock],
-                                          bodyBlocks : Set[WalaBlock], cfg : SSACFG,
-                                          inclusive : Boolean = false) : Set[WalaBlock] = {
-      def getSuccs(blk : WalaBlock, cfg : SSACFG) : List[WalaBlock] = {
-        val succs = getSuccessors(blk, cfg)
-        if (breaksAndContinues.contains(blk)) 
-          if (succs.size == 1) succs //List.empty[WalaBlock] // normal break / continue--single succ
-          else {
-            // one branch of a conditional or loop head is a break / continue. follow the succ that is NOT a break / continue
-            val jmpSucc = breaksAndContinues.getOrElse(blk, sys.error("this can't happen"))
-            succs.filterNot(blk => blk == jmpSucc) 
-          }
-        else succs
-      }
-      getWhile((cfg, blk) => getSuccs(blk, cfg).toSet, startBlk, cfg, blk => (bodyBlocks.isEmpty || bodyBlocks.contains(blk))
-          && !breaksAndContinues.contains(blk) || endsWithConditionalInstr(blk), inclusive)
+  def getReachableWithoutLoopConstructs(startBlk : WalaBlock, breaksAndContinues : Map[WalaBlock,WalaBlock],
+                                        bodyBlocks : Set[WalaBlock], cfg : SSACFG,
+                                        inclusive : Boolean = false) : Set[WalaBlock] = {
+    def getSuccs(blk : WalaBlock, cfg : SSACFG) : List[WalaBlock] = {
+      val succs = getSuccessors(blk, cfg)
+      if (breaksAndContinues.contains(blk))
+        if (succs.size == 1) succs //List.empty[WalaBlock] // normal break / continue--single succ
+        else {
+          // one branch of a conditional or loop head is a break / continue. follow the succ that is NOT a break / continue
+          val jmpSucc = breaksAndContinues.getOrElse(blk, sys.error("this can't happen"))
+          succs.filterNot(blk => blk == jmpSucc)
+        }
+      else succs
     }
+    getWhile((cfg, blk) => getSuccs(blk, cfg).toSet, startBlk, cfg, blk => (bodyBlocks.isEmpty || bodyBlocks.contains(blk))
+      && !breaksAndContinues.contains(blk) || endsWithConditionalInstr(blk), inclusive)
+  }
           
-    /**
-     * @return true if @param blk0 and @param blk1 both have a single successor, and that successor is the same block
-     */  
-    def transitionToSameBlock(blk0 : WalaBlock, blk1 : WalaBlock, cfg : SSACFG) : Boolean = {
-      val (succs0, succs1) = (getSuccessors(blk0, cfg), getSuccessors(blk1, cfg))
-      if (succs0.size == succs1.size && succs0.size == 1) succs0 == succs1
-      else false
-    }
+  /**
+   * @return true if @param blk0 and @param blk1 both have a single successor, and that successor is the same block
+   */
+  def transitionToSameBlock(blk0 : WalaBlock, blk1 : WalaBlock, cfg : SSACFG) : Boolean = {
+    val (succs0, succs1) = (getSuccessors(blk0, cfg), getSuccessors(blk1, cfg))
+    if (succs0.size == succs1.size && succs0.size == 1) succs0 == succs1
+    else false
+  }
+
+  def endsWithThrowInstr(blk : WalaBlock) : Boolean =
+    blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAThrowInstruction]
+
+  def endsWithSwitchInstr(blk : WalaBlock) : Boolean =
+    blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSASwitchInstruction]
+
+  def endsWithGotoInstr(blk : WalaBlock) : Boolean =
+    blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAGotoInstruction]
+
+  def endsWithConditionalInstr(blk : WalaBlock) : Boolean =
+    blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAConditionalBranchInstruction]
+
+  def endsWithReturnInstr(blk : WalaBlock) : Boolean =
+    blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAReturnInstruction]
       
-   /**
-     * @return true if @param src falls through to exit block
-     */
-    def isExitBlock(src : WalaBlock, cfg : SSACFG) : Boolean = fallsThroughTo(src, new WalaBlock(cfg.exit().asInstanceOf[ISSABasicBlock]), cfg)
+  /**
+   * @return true if @param src falls through to exit block
+   */
+  def isExitBlock(src : WalaBlock, cfg : SSACFG) : Boolean = fallsThroughTo(src, new WalaBlock(cfg.exit().asInstanceOf[ISSABasicBlock]), cfg)
     
-    /**
-     * @return true if @param src falls through to a throw block
-     */
-    def isThrowBlock(src : WalaBlock, cfg : SSACFG) : Boolean = {
-      var last : WalaBlock = src
-      // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
-      getSuccsWhile(src, cfg, (blk => { 
-          //val size = cfg.getNormalSuccessors(blk).size()          
-          val size = getSuccessors(blk, cfg).size
-          if (size == 1) true 
-          else { last = blk; false}
-      }))
-      endsWithThrowInstr(last)
-    }
-    
-    /**
-     * @return true if a catch block falls through to @param snk
-     */
-    def catchBlockFallsThroughTo(snk : WalaBlock, cfg : SSACFG) : Boolean = {
-      // we could use cfg.getCatchBlocks(), but it returns a bitvector that is a pain to
-      // iterate over
-      val catchBlocks = cfg.filter(blk => blk.isCatchBlock())
-      catchBlocks.foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getFallThroughBlocks(new WalaBlock(blk), cfg))
-      .contains(snk)
-    }
-    
-    def catchBlockTransitionsTo(snk : WalaBlock, cfg : SSACFG) : Boolean = {
-      // we could use cfg.getCatchBlocks(), but it returns a bitvector that is a pain to
-      // iterate over
-      val catchBlocks = cfg.filter(blk => blk.isCatchBlock())
-      catchBlocks.foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getSuccsWhile(new WalaBlock(blk), cfg))
-      .contains(snk)
-    }
+  /**
+   * @return true if @param src falls through to a throw block
+   */
+  def isThrowBlock(src : WalaBlock, cfg : SSACFG) : Boolean = {
+    var last : WalaBlock = src
+    // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
+    getSuccsWhile(src, cfg, (blk => {
+      val size = getSuccessors(blk, cfg).size
+      if (size == 1) true
+      else { last = blk; false}
+    }))
+    endsWithThrowInstr(last)
+  }
 
-    /** @return true if @param block is protected by a catch block when it throws exception @exc */
-    def isProtectedByCatchBlockIntraprocedural(blk : ISSABasicBlock, cfg : SSACFG, exc : TypeReference,
-                                               cha : IClassHierarchy) : Boolean = {
-      val excClass = cha.lookupClass(exc)
-      cfg.getExceptionalSuccessors(blk).exists(b => b.isCatchBlock && {
-        b.getCaughtExceptionTypes.exists(t => {
-          val caughtExc = cha.lookupClass(t)
-          cha.isAssignableFrom(caughtExc, excClass)
-        })
-      })
-    }
+  /** @return true if @param b is a block containing a conditional or switch instruction */
+  def isConditionalBlock(b : ISSABasicBlock) : Boolean =
+    b.exists(i => i.isInstanceOf[SSAConditionalBranchInstruction] || i.isInstanceOf[SSASwitchInstruction])
 
-    def isProtectedByCatchBlockInterprocedural(blk : ISSABasicBlock, node : CGNode, exc : TypeReference,
-                                               cg : CallGraph, cha : IClassHierarchy) : Boolean =
-      // protected if it is protected intraprocedurally...
-      isProtectedByCatchBlockIntraprocedural(blk, node.getIR.getControlFlowGraph, exc, cha) || {
-        // ...or interprocedurally in callers
-        def extendWorklistWithPreds(node : CGNode, worklist : List[(CGNode,CGNode)]) : List[(CGNode,CGNode)] =
-          cg.getPredNodes(node).foldLeft (worklist) ((worklist, caller) => (caller, node) :: worklist)
-
-        @annotation.tailrec
-        def isProtectedByCatchBlockInterproceduralRec(worklist : List[(CGNode,CGNode)],
-                                                      seen : Set[(CGNode,CGNode)]) : Boolean =
-          worklist match {
-            case Nil => false
-            case pair :: worklist =>
-              !seen.contains(pair) && {
-                val (caller, callee) = pair
-                val ir = caller.getIR
-                val cfg = ir.getControlFlowGraph
-                // true if caller has at least one catch block
-                val hasCatchBlk = !cfg.getCatchBlocks.isZero
-                // true if for all calls to callee in caller, there exists a catch block that protects the call site
-                def protectedAtAllCallSites(): Boolean = {
-                  val siteBlks =
-                    cg.getPossibleSites(caller, callee).foldLeft(Set.empty[ISSABasicBlock])((siteBlks, site) =>
-                      siteBlks ++ ir.getBasicBlocksForCall(site))
-                  siteBlks.forall(blk => isProtectedByCatchBlockIntraprocedural(blk, cfg, exc, cha))
-                }
-
-                if (hasCatchBlk && protectedAtAllCallSites())
-                  // callee was protected, we can recurse to checking the rest of the list
-                  worklist.isEmpty || isProtectedByCatchBlockInterproceduralRec(worklist, seen)
-                else
-                  // callee wasn't protected; can only be protected if all of its callers are too
-                  isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(caller, worklist), seen + pair)
-              }
-          }
-
-        isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(node, Nil), Set.empty[(CGNode,CGNode)])
+  /** @return true if @param i is guarded by any conditional instruction in the IR for @param n */
+  def isGuardedByConditional(i : SSAInstruction, n : CGNode) : Boolean = {
+    val cfg = n.getIR.getControlFlowGraph
+    val instrBlk =
+      findInstr(n, i) match {
+        case Some((blk, _)) => blk
+        case None => sys.error(s"Instruction $i not in IR for CGNode $n: ${n.getIR}")
       }
 
-    /*
-    // TODO: some Scala wizard who understands TypeTags could probably rewrite this in a nicer way
-    def endsWithInstr[T <: SSAInstruction](blk : WalaBlock) (implicit tag : WeakTypeTag[T]) : Boolean = 
-      if (blk.getLastInstructionIndex() > -1) {         
-        val typ = reflect.runtime.currentMirror.reflect(blk.getLastInstruction()).symbol.toType        
-        val res = typ <:< tag.tpe && tag.tpe <:< typ
-        println("checking " + typ + " and " + tag.tpe + " res " + res)
-        res
-      } else false
-      */
-    // TODO: there's some way to do these with metaprogramming (see above commented method), but can't
-    // quite figure it out under constrained time right now
-    def endsWithThrowInstr(blk : WalaBlock) : Boolean = 
-      blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAThrowInstruction]
-      
-    def endsWithSwitchInstr(blk : WalaBlock) : Boolean = 
-      blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSASwitchInstruction]
-      
-    def endsWithGotoInstr(blk : WalaBlock) : Boolean = 
-      blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAGotoInstruction]
+    val condBlks = cfg.filter(blk => isConditionalBlock(blk))
+    val domInfo = Dominators.make(cfg, cfg.entry())
+    condBlks.exists(condBlk =>
+      // i is guarded by a conditional if it is dominated by one of the conditional's successor blocks
+      cfg.getSuccNodes(condBlk).exists(condSucc => domInfo.isDominatedBy(instrBlk, condSucc))
+    )
+  }
 
-    def endsWithConditionalInstr(blk : WalaBlock) : Boolean = 
-      blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAConditionalBranchInstruction]
-            
-    def endsWithReturnInstr(blk : WalaBlock) : Boolean = 
-      blk.getLastInstructionIndex > -1 && blk.getLastInstruction.isInstanceOf[SSAReturnInstruction]         
-      
-    /**
-     * Get the normal successors of a block AND any exceptional successors ending in a throw statement
-     * this is necessary because WALA regards the transition to a throw block as an exceptional successor.
-     * That is, if we have blk(v1 = new Exception) -> blk(throw v1), we will not see "blk(throw v1) as
-     * a successor of "blk(v1 = new Exception)". This method is meant to correct this 
-     */
-    def getSuccessors(blk : WalaBlock, cfg : SSACFG) = {
-      cfg.getExceptionalSuccessors(blk.blk).foldLeft (cfg.getNormalSuccessors(blk.blk).map(succ => new WalaBlock(succ)).toList) ((lst, succ) => {
-        val walaBlk = new WalaBlock(succ)
-        if (endsWithThrowInstr(walaBlk) && !walaBlk.isCatchBlock()) walaBlk :: lst
-        else lst
+  def getCatchBlocks(cfg : SSACFG) : Iterable[ISSABasicBlock] =
+    // we could use cfg.getCatchBlocks(), but it returns a bitvector that is a pain to iterate over
+    cfg.filter(blk => blk.isCatchBlock())
+
+  /**
+   * @return true if a catch block falls through to @param snk
+   */
+  def catchBlockFallsThroughTo(snk : WalaBlock, cfg : SSACFG) : Boolean =
+    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getFallThroughBlocks(new WalaBlock(blk), cfg))
+    .contains(snk)
+    
+  def catchBlockTransitionsTo(snk : WalaBlock, cfg : SSACFG) : Boolean =
+    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getSuccsWhile(new WalaBlock(blk), cfg))
+    .contains(snk)
+
+  /** @return true if @param block is protected by a catch block when it throws exception @exc */
+  def isProtectedByCatchBlockIntraprocedural(blk : ISSABasicBlock, cfg : SSACFG, exc : TypeReference,
+                                             cha : IClassHierarchy) : Boolean = {
+    val excClass = cha.lookupClass(exc)
+    cfg.getExceptionalSuccessors(blk).exists(b => b.isCatchBlock && {
+      b.getCaughtExceptionTypes.exists(t => {
+        val caughtExc = cha.lookupClass(t)
+        cha.isAssignableFrom(caughtExc, excClass)
       })
+    })
+  }
+
+  def isProtectedByCatchBlockInterprocedural(blk : ISSABasicBlock, node : CGNode, exc : TypeReference,
+                                               cg : CallGraph, cha : IClassHierarchy) : Boolean =
+    // protected if it is protected intraprocedurally...
+    isProtectedByCatchBlockIntraprocedural(blk, node.getIR.getControlFlowGraph, exc, cha) || {
+      // ...or interprocedurally in callers
+      def extendWorklistWithPreds(node : CGNode, worklist : List[(CGNode,CGNode)]) : List[(CGNode,CGNode)] =
+        cg.getPredNodes(node).foldLeft (worklist) ((worklist, caller) => (caller, node) :: worklist)
+
+      @annotation.tailrec
+      def isProtectedByCatchBlockInterproceduralRec(worklist : List[(CGNode,CGNode)],
+                                                    seen : Set[(CGNode,CGNode)]) : Boolean =
+        worklist match {
+          case Nil => false
+          case pair :: worklist =>
+            !seen.contains(pair) && {
+              val (caller, callee) = pair
+              val ir = caller.getIR
+              val cfg = ir.getControlFlowGraph
+              // true if caller has at least one catch block
+              val hasCatchBlk = !cfg.getCatchBlocks.isZero
+              // true if for all calls to callee in caller, there exists a catch block that protects the call site
+              def protectedAtAllCallSites(): Boolean = {
+                val siteBlks =
+                  cg.getPossibleSites(caller, callee).foldLeft(Set.empty[ISSABasicBlock])((siteBlks, site) =>
+                    siteBlks ++ ir.getBasicBlocksForCall(site))
+                siteBlks.forall(blk => isProtectedByCatchBlockIntraprocedural(blk, cfg, exc, cha))
+              }
+
+              if (hasCatchBlk && protectedAtAllCallSites())
+              // callee was protected, we can recurse to checking the rest of the list
+                worklist.isEmpty || isProtectedByCatchBlockInterproceduralRec(worklist, seen)
+              else
+              // callee wasn't protected; can only be protected if all of its callers are too
+                isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(caller, worklist), seen + pair)
+            }
+        }
+
+      isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(node, Nil), Set.empty[(CGNode,CGNode)])
     }
+      
+  /**
+   * Get the normal successors of a block AND any exceptional successors ending in a throw statement
+   * this is necessary because WALA regards the transition to a throw block as an exceptional successor.
+   * That is, if we have blk(v1 = new Exception) -> blk(throw v1), we will not see "blk(throw v1) as
+   * a successor of "blk(v1 = new Exception)". This method is meant to correct this
+   */
+  def getSuccessors(blk : WalaBlock, cfg : SSACFG) = {
+    cfg.getExceptionalSuccessors(blk.blk).foldLeft (cfg.getNormalSuccessors(blk.blk).map(succ => new WalaBlock(succ)).toList) ((lst, succ) => {
+      val walaBlk = new WalaBlock(succ)
+      if (endsWithThrowInstr(walaBlk) && !walaBlk.isCatchBlock()) walaBlk :: lst
+      else lst
+    })
+  }
       
   def getNormalPredecessors(blk : WalaBlock, cfg : SSACFG) : Iterable[WalaBlock] = 
     cfg.getNormalPredecessors(blk.blk).map(blk => new WalaBlock(blk))  
