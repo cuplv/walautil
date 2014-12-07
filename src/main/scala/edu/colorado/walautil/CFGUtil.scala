@@ -158,12 +158,14 @@ object CFGUtil {
         case None => sys.error(s"Instruction $i not in IR for CGNode $n: ${n.getIR}")
       }
 
-    val condBlks = cfg.filter(blk => isConditionalBlock(blk))
-    val domInfo = Dominators.make(cfg, cfg.entry())
-    condBlks.exists(condBlk =>
-      // i is guarded by a conditional if it is dominated by one of the conditional's successor blocks
-      cfg.getSuccNodes(condBlk).exists(condSucc => domInfo.isDominatedBy(instrBlk, condSucc))
-    )
+    val bwReachable = getBackwardReachableFrom(instrBlk, cfg, inclusive = true).toSet
+    // if instrBlk is guarded by a conditional, its backward-reachable blocks will contain a conditional blocks whose
+    // successors are not all contained in bwReachable.
+    // TODO: this isn't quite right; need to eliminate back edges from consideration during backward reachability. this
+    // code is actually sound for just a boolean check because we'll always report the loop conditional as dominating in
+    // the case that back edges cause problems, but if we want to report the exact list of dominating conditionals we
+    // need to fix this issue
+    bwReachable.exists(blk => isConditionalBlock(blk) && cfg.getSuccNodes(blk).exists(blk => !bwReachable.contains(blk)))
   }
 
   def getCatchBlocks(cfg : SSACFG) : Iterable[ISSABasicBlock] =
