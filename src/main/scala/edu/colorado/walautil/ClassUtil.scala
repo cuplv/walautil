@@ -72,6 +72,15 @@ object ClassUtil {
   }
   def walaClassNameToPath(typ : TypeName) : String = stripWalaLeadingL(typ.toString())
 
+  def partitionPackageAndName(className : String) : (String, String) = {
+    val lastDot = className.lastIndexOf('.')
+    if (lastDot >= 0) (className.substring(0, lastDot), className.substring(lastDot + 1))
+    else {
+      val DEFAULT_PACKAGE = ""
+      (DEFAULT_PACKAGE, className)
+    }
+  }
+
   def makeTypeRef(typeName : String) : TypeReference =
     TypeReference.findOrCreate(ClassLoaderReference.Primordial, ClassUtil.walaifyClassName(typeName))
 
