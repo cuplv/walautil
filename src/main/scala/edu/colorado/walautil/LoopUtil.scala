@@ -1,5 +1,7 @@
 package edu.colorado.walautil
 
+import edu.colorado.walautil.Types.MSet
+
 import scala.collection.JavaConversions.collectionAsScalaIterable
 import scala.collection.JavaConversions.iterableAsScalaIterable
 import scala.collection.mutable.HashMap
@@ -12,9 +14,7 @@ import com.ibm.wala.ssa.ISSABasicBlock
 
 object LoopUtil {
   val DEBUG = false
-  
-  type MSet[T] = scala.collection.mutable.Set[T]
-    
+
   // TODO: we can cache a lot more here (loop bodies e.t.c) if performance is a problem;
   // there's certainly a lot of redundant computation right now
   val dominatorsCache = new HashMap[IR,Dominators[ISSABasicBlock]]
@@ -38,12 +38,6 @@ object LoopUtil {
     }
     dominatorsCache.getOrElseUpdate(ir, computeDominators(ir))
   }
-  
-  /*
-  def getBackEdges(ir : IR) : Set[Int] = {
-    
-  }
-  */
     
     /**
      * @return the set of basic block numbers that are sinks of some back edge in IR
