@@ -26,11 +26,14 @@ object IRUtil {
 
   val thisVar = 1
 
-  var dummyIndexCounter = 0
+  val DUMMY_INDEX_START = -5
+  var dummyIndexCounter = DUMMY_INDEX_START
   def getDummyIndex() : Int = {
-    dummyIndexCounter += 1
+    dummyIndexCounter -= 1
     dummyIndexCounter
   }
+
+  def isGeneratedInstruction(i : SSAInstruction) : Boolean = i.iindex <= DUMMY_INDEX_START
 
   def isThisVar(useNum : Int) = useNum == thisVar
 
