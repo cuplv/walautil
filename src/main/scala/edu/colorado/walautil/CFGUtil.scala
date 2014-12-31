@@ -150,40 +150,6 @@ object CFGUtil {
   def isConditionalBlock(b : ISSABasicBlock) : Boolean =
     b.exists(i => i.isInstanceOf[SSAConditionalBranchInstruction] || i.isInstanceOf[SSASwitchInstruction])
 
-  /** @return true if @param i is guarded by any conditional instruction in the IR for @param n */
-  def isGuardedByConditional(i : SSAInstruction, n : CGNode) : Boolean = {
-    val ir = n.getIR
-    val cfg = ir.getControlFlowGraph
-    val instrBlk = ir.getBasicBlockForInstruction(i)
-    val bwReachable = getBackwardReachableFrom(instrBlk, n.getIR.getControlFlowGraph, inclusive = true).toSet
-    // if instrBlk is guarded by a conditional, its backward-reachable blocks will contain a conditional blocks whose
-    // successors are not all contained in bwReachable.
-    // TODO: this isn't quite right; need to eliminate back edges from consideration during backward reachability. this
-    // code is actually sound for just a boolean check like this because we'll always report the loop conditional as
-    // dominating, but if we want to re-use this code to compute the exact list of dominating conditionals in the
-    // future, we need to fix this issue
-    bwReachable.exists(blk => isConditionalBlock(blk) &&
-                              cfg.getSuccNodes(blk).exists(blk => !bwReachable.contains(blk)))
-  }
-
-  /** @return true if @param i is lexically enclosed in a catch block in the IR for @param n */
-  def isInCatchBlockIntraprocedural(i : SSAInstruction, n : CGNode) : Boolean = {
-    val ir = n.getIR
-    val cfg = ir.getControlFlowGraph
-
-    cfg.exists(blk => blk.isCatchBlock) && {
-      val instrBlk = ir.getBasicBlockForInstruction(i)
-      val bwReachable = getBackwardReachableFrom(instrBlk, n.getIR.getControlFlowGraph, inclusive = true)
-      // get back edge-free view of CFG
-      val cfgWithoutBackEdges = getBackEdgePrunedCFG(cfg)
-      // i is in a catch block if one of its predecessor instructions transitions to a catch block and no paths exist
-      // from from the catch block to i without using a back edge. if such a path exists, the catch block precedes i
-      // rather than enclosing it
-      bwReachable.exists(blk => cfg.getExceptionalSuccessors(blk).exists(blk =>
-        blk.isCatchBlock && !isReachableFrom(instrBlk, blk, cfgWithoutBackEdges)))
-    }
-  }
-
   def getCatchBlocks(cfg : SSACFG) : Iterable[ISSABasicBlock] =
     // we could use cfg.getCatchBlocks(), but it returns a bitvector that is a pain to iterate over
     cfg.filter(blk => blk.isCatchBlock())
@@ -199,6 +165,47 @@ object CFGUtil {
     getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getSuccsWhile(new WalaBlock(blk), cfg))
     .contains(snk)
 
+
+
+  // general template for checking simple cfg structural properties interprocedurally
+  private def interprocCheck(intraProcCheck : (ISSABasicBlock, SSACFG) => Boolean, startBlk : ISSABasicBlock,
+                             n : CGNode, cg : CallGraph, cgNodeFilter : CGNode => Boolean) : Boolean =
+    // check is true if it is true intraprocedurally...
+    intraProcCheck(startBlk, n.getIR.getControlFlowGraph) || {
+      // ...or interprocedurally at each caller
+      def extendWorklistWithPreds(n: CGNode, worklist : List[(CGNode,CGNode)]) : List[(CGNode,CGNode)] =
+        cg.getPredNodes(n).filter(n => cgNodeFilter(n))
+                          .foldLeft (worklist) ((worklist, caller) => (caller, n) :: worklist)
+
+      @annotation.tailrec
+      def interprocCheckRec(worklist : List[(CGNode,CGNode)], seen : Set[(CGNode,CGNode)]) : Boolean =
+        worklist match {
+          case Nil => false
+          case pair :: worklist =>
+            !seen.contains(pair) && {
+              val (caller, callee) = pair
+              val ir = caller.getIR
+              val cfg = ir.getControlFlowGraph
+              val protectedAtAllCallSites = {
+                val siteBlks =
+                  // check true if it is true for all calls to callee in caller
+                  cg.getPossibleSites(caller, callee).foldLeft(Set.empty[ISSABasicBlock])((siteBlks, site) =>
+                    siteBlks ++ ir.getBasicBlocksForCall(site))
+                siteBlks.forall(blk => intraProcCheck(blk, cfg))
+              }
+
+              if (protectedAtAllCallSites)
+                // callee satisfies property, we can recurse to checking the rest of the list
+                worklist.isEmpty || interprocCheckRec(worklist, seen)
+              else
+                // callee does not satisfy property; can only do so if all of its callers do
+                interprocCheckRec(extendWorklistWithPreds(caller, worklist), seen + pair)
+            }
+        }
+
+      interprocCheckRec(extendWorklistWithPreds(n, Nil), Set.empty[(CGNode,CGNode)])
+    }
+
   /** @return true if @param block is protected by a catch block when it throws exception @exc */
   def isProtectedByCatchBlockIntraprocedural(blk : ISSABasicBlock, cfg : SSACFG, exc : TypeReference,
                                              cha : IClassHierarchy) : Boolean = {
@@ -211,45 +218,50 @@ object CFGUtil {
     })
   }
 
-  def isProtectedByCatchBlockInterprocedural(blk : ISSABasicBlock, node : CGNode, exc : TypeReference,
-                                               cg : CallGraph, cha : IClassHierarchy) : Boolean =
-    // protected if it is protected intraprocedurally...
-    isProtectedByCatchBlockIntraprocedural(blk, node.getIR.getControlFlowGraph, exc, cha) || {
-      // ...or interprocedurally in callers
-      def extendWorklistWithPreds(node : CGNode, worklist : List[(CGNode,CGNode)]) : List[(CGNode,CGNode)] =
-        cg.getPredNodes(node).foldLeft (worklist) ((worklist, caller) => (caller, node) :: worklist)
+  def isProtectedByCatchBlockInterprocedural(startBlk : ISSABasicBlock, n : CGNode, exc : TypeReference, cg : CallGraph,
+                                             cha : IClassHierarchy,
+                                             cgNodeFilter : CGNode => Boolean = Util.RET_TRUE) : Boolean = {
+    def intraCheckClosure(blk : ISSABasicBlock, cfg : SSACFG) =
+      isProtectedByCatchBlockIntraprocedural(blk, cfg, exc, cha)
+    interprocCheck(intraCheckClosure, startBlk, n, cg, cgNodeFilter)
+  }
 
-      @annotation.tailrec
-      def isProtectedByCatchBlockInterproceduralRec(worklist : List[(CGNode,CGNode)],
-                                                    seen : Set[(CGNode,CGNode)]) : Boolean =
-        worklist match {
-          case Nil => false
-          case pair :: worklist =>
-            !seen.contains(pair) && {
-              val (caller, callee) = pair
-              val ir = caller.getIR
-              val cfg = ir.getControlFlowGraph
-              // true if caller has at least one catch block
-              val hasCatchBlk = !cfg.getCatchBlocks.isZero
-              // true if for all calls to callee in caller, there exists a catch block that protects the call site
-              def protectedAtAllCallSites(): Boolean = {
-                val siteBlks =
-                  cg.getPossibleSites(caller, callee).foldLeft(Set.empty[ISSABasicBlock])((siteBlks, site) =>
-                    siteBlks ++ ir.getBasicBlocksForCall(site))
-                siteBlks.forall(blk => isProtectedByCatchBlockIntraprocedural(blk, cfg, exc, cha))
-              }
+  /** @return true if @param startBlk is lexically enclosed in a try block in the IR for @param n */
+  def isInTryBlockIntraprocedural(startBlk : ISSABasicBlock, cfg : SSACFG) : Boolean = {
 
-              if (hasCatchBlk && protectedAtAllCallSites())
-              // callee was protected, we can recurse to checking the rest of the list
-                worklist.isEmpty || isProtectedByCatchBlockInterproceduralRec(worklist, seen)
-              else
-              // callee wasn't protected; can only be protected if all of its callers are too
-                isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(caller, worklist), seen + pair)
-            }
-        }
-
-      isProtectedByCatchBlockInterproceduralRec(extendWorklistWithPreds(node, Nil), Set.empty[(CGNode,CGNode)])
+    cfg.exists(blk => blk.isCatchBlock) && {
+      val bwReachable = getBackwardReachableFrom(startBlk, cfg, inclusive = true)
+      // get back edge-free view of CFG
+      val cfgWithoutBackEdges = getBackEdgePrunedCFG(cfg)
+      // startBlk is in a catch block if one of its predecessor instructions transitions to a catch block and no paths
+      // exist from from the catch block to startBlk without traversing a back edge. if such a path exists, the try
+      // block precedes startBlk rather than enclosing it
+      bwReachable.exists(blk => cfg.getExceptionalSuccessors(blk).exists(blk =>
+        blk.isCatchBlock && !isReachableFrom(startBlk, blk, cfgWithoutBackEdges)))
     }
+  }
+
+  def isInTryBlockInterprocedural(blk : ISSABasicBlock, n : CGNode, cg : CallGraph,
+                                    cgNodeFilter : CGNode => Boolean = Util.RET_TRUE) : Boolean =
+    interprocCheck(isInTryBlockIntraprocedural, blk, n, cg, cgNodeFilter)
+
+  /** @return true if @param i is lexically enclosed in a conditional block in the IR for @param n */
+  def isInConditionalIntraprocedural(startBlk : ISSABasicBlock, cfg : SSACFG) : Boolean = {
+    val bwReachable = getBackwardReachableFrom(startBlk, cfg, inclusive = true).toSet
+    // if instrBlk is guarded by a conditional, its backward-reachable blocks will contain a conditional blocks whose
+    // successors are not all contained in bwReachable.
+
+    // note that if we want to re-use this code to compute the exact list of dominating conditionals at some point in
+    // the future, we need to do something a bit different: eliminate back edges from consideration during the backward
+    // reachability check. this code is fine for a boolean check like this procedure because we'll always report the
+    // loop conditional as dominating
+    bwReachable.exists(blk => isConditionalBlock(blk) &&
+                              cfg.getSuccNodes(blk).exists(blk => !bwReachable.contains(blk)))
+  }
+
+  def isInConditionalInterprocedural(blk : ISSABasicBlock, n : CGNode, cg : CallGraph,
+                                     cgNodeFilter : CGNode => Boolean = Util.RET_TRUE) : Boolean =
+    interprocCheck(isInConditionalIntraprocedural, blk, n, cg, cgNodeFilter)
       
   /**
    * Get the normal successors of a block AND any exceptional successors ending in a throw statement
