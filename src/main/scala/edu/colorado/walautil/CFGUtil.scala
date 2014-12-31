@@ -1,13 +1,14 @@
 package edu.colorado.walautil
 
 import com.ibm.wala.ipa.callgraph.{CGNode, CallGraph}
+import com.ibm.wala.ipa.cfg.{EdgeFilter, PrunedCFG}
 import com.ibm.wala.ipa.cha.IClassHierarchy
 import com.ibm.wala.ssa.{ISSABasicBlock, SSACFG, SSAConditionalBranchInstruction, SSAGotoInstruction, SSAInstruction, SSAReturnInstruction, SSASwitchInstruction, SSAThrowInstruction}
 import com.ibm.wala.types.TypeReference
 import com.ibm.wala.util.graph.dominators.Dominators
 import com.ibm.wala.util.graph.impl.GraphInverter
 import com.ibm.wala.util.graph.traverse.{BFSPathFinder, DFS}
-import com.ibm.wala.util.graph.{Graph, NumberedGraph}
+import com.ibm.wala.util.graph.{Acyclic, Graph, NumberedGraph}
 
 import scala.collection.JavaConversions.{collectionAsScalaIterable, iterableAsScalaIterable, _}
 
@@ -151,21 +152,36 @@ object CFGUtil {
 
   /** @return true if @param i is guarded by any conditional instruction in the IR for @param n */
   def isGuardedByConditional(i : SSAInstruction, n : CGNode) : Boolean = {
-    val cfg = n.getIR.getControlFlowGraph
-    val instrBlk =
-      findInstr(n, i) match {
-        case Some((blk, _)) => blk
-        case None => sys.error(s"Instruction $i not in IR for CGNode $n: ${n.getIR}")
-      }
-
-    val bwReachable = getBackwardReachableFrom(instrBlk, cfg, inclusive = true).toSet
+    val ir = n.getIR
+    val cfg = ir.getControlFlowGraph
+    val instrBlk = ir.getBasicBlockForInstruction(i)
+    val bwReachable = getBackwardReachableFrom(instrBlk, n.getIR.getControlFlowGraph, inclusive = true).toSet
     // if instrBlk is guarded by a conditional, its backward-reachable blocks will contain a conditional blocks whose
     // successors are not all contained in bwReachable.
     // TODO: this isn't quite right; need to eliminate back edges from consideration during backward reachability. this
-    // code is actually sound for just a boolean check because we'll always report the loop conditional as dominating in
-    // the case that back edges cause problems, but if we want to report the exact list of dominating conditionals we
-    // need to fix this issue
-    bwReachable.exists(blk => isConditionalBlock(blk) && cfg.getSuccNodes(blk).exists(blk => !bwReachable.contains(blk)))
+    // code is actually sound for just a boolean check like this because we'll always report the loop conditional as
+    // dominating, but if we want to re-use this code to compute the exact list of dominating conditionals in the
+    // future, we need to fix this issue
+    bwReachable.exists(blk => isConditionalBlock(blk) &&
+                              cfg.getSuccNodes(blk).exists(blk => !bwReachable.contains(blk)))
+  }
+
+  /** @return true if @param i is lexically enclosed in a catch block in the IR for @param n */
+  def isInCatchBlockIntraprocedural(i : SSAInstruction, n : CGNode) : Boolean = {
+    val ir = n.getIR
+    val cfg = ir.getControlFlowGraph
+
+    cfg.exists(blk => blk.isCatchBlock) && {
+      val instrBlk = ir.getBasicBlockForInstruction(i)
+      val bwReachable = getBackwardReachableFrom(instrBlk, n.getIR.getControlFlowGraph, inclusive = true)
+      // get back edge-free view of CFG
+      val cfgWithoutBackEdges = getBackEdgePrunedCFG(cfg)
+      // i is in a catch block if one of its predecessor instructions transitions to a catch block and no paths exist
+      // from from the catch block to i without using a back edge. if such a path exists, the catch block precedes i
+      // rather than enclosing it
+      bwReachable.exists(blk => cfg.getExceptionalSuccessors(blk).exists(blk =>
+        blk.isCatchBlock && !isReachableFrom(instrBlk, blk, cfgWithoutBackEdges)))
+    }
   }
 
   def getCatchBlocks(cfg : SSACFG) : Iterable[ISSABasicBlock] =
@@ -292,6 +308,10 @@ object CFGUtil {
   }
 
   /** @return true if @param snk is reachable from @param src in @param g */
+  def isReachableFrom(snk : ISSABasicBlock, src : ISSABasicBlock, g : NumberedGraph[ISSABasicBlock]) : Boolean =
+    isReachableFrom(snk.getNumber, src.getNumber, g)
+
+  /** @return true if @param snk is reachable from @param src in @param g */
   def isReachableFrom[T](snk : Int, src : Int, g : NumberedGraph[T]) : Boolean = {
     // subvert WALA caching issues. ugh
     val (newSrc, newSnk) = (g.getNode(src), g.getNode(snk))
@@ -310,5 +330,18 @@ object CFGUtil {
     }
     DFS.getReachableNodes(g, srcs).toList
   }
+
+  /** @return a view of @param cfg with all back edges removed */
+  def getBackEdgePrunedCFG(cfg : SSACFG) = PrunedCFG.make(cfg, new BackEdgePruner(cfg))
+}
+
+private final class BackEdgePruner(cfg : SSACFG) extends EdgeFilter[ISSABasicBlock] {
+  val backEdges = Acyclic.computeBackEdges(cfg, cfg.entry())
+
+  override def hasNormalEdge(src : ISSABasicBlock, dst : ISSABasicBlock) : Boolean =
+    cfg.getNormalSuccessors(src).toList.filter(blk => !backEdges.contains(src.getNumber, blk.getNumber)).contains(dst)
+
+  override def hasExceptionalEdge(src : ISSABasicBlock, dst : ISSABasicBlock) : Boolean =
+    cfg.getExceptionalSuccessors(src).contains(dst)
 
 }
