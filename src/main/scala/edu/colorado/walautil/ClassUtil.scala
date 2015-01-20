@@ -49,7 +49,7 @@ object ClassUtil {
     case _ => key.toString()
   }
 
-  def nnnerClassThis(f : FieldReference) : Boolean = f.getName.toString.startsWith("this$")
+  def isInnerClassThis(f : FieldReference) : Boolean = f.getName.toString.startsWith("this$")
 
   def isInnerClassThis(f : IField) : Boolean = isInnerClassThis(f.getReference)
 
