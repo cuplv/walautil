@@ -3,7 +3,7 @@ package edu.colorado.walautil
 import com.ibm.wala.ipa.callgraph.{CGNode, CallGraph}
 import com.ibm.wala.ipa.cfg.{EdgeFilter, PrunedCFG}
 import com.ibm.wala.ipa.cha.IClassHierarchy
-import com.ibm.wala.ssa.{ISSABasicBlock, SSACFG, SSAConditionalBranchInstruction, SSAGotoInstruction, SSAInstruction, SSAReturnInstruction, SSASwitchInstruction, SSAThrowInstruction}
+import com.ibm.wala.ssa._
 import com.ibm.wala.types.TypeReference
 import com.ibm.wala.util.graph.dominators.Dominators
 import com.ibm.wala.util.graph.impl.GraphInverter
@@ -307,8 +307,8 @@ object CFGUtil {
     getJoinsRec(worklist, List.empty[T])
   }
 
-  def findInstr(node : CGNode, i : SSAInstruction) : Option[(ISSABasicBlock, Int)] = {
-    val ir = node.getIR()
+  def findInstr(ir : IR, i : SSAInstruction) : Option[(ISSABasicBlock, Int)] = {
+    require(ir != null)
     // find index of instr in block
     val startBlk = ir.getBasicBlockForInstruction(i)
     if (startBlk == null) None

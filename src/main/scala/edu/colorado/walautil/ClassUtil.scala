@@ -49,7 +49,7 @@ object ClassUtil {
     case _ => key.toString()
   }
 
-  def isInnerClassThis(f : FieldReference) : Boolean = f.getName.toString.startsWith("this$")
+  def nnnerClassThis(f : FieldReference) : Boolean = f.getName.toString.startsWith("this$")
 
   def isInnerClassThis(f : IField) : Boolean = isInnerClassThis(f.getReference)
 
@@ -189,6 +189,7 @@ object ClassUtil {
      else "v" + num  
   
     def printParenthesizedUsesList(i : SSAInstruction, start : Int  = 0) = {
+      require(start > -1)
       print('(')
       for (j <- start to i.getNumberOfUses() - 1) {
         print(v(i.getUse(j)))
