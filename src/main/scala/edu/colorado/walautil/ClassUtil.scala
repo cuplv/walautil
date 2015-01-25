@@ -182,8 +182,9 @@ object ClassUtil {
         case _ => print(i)
     }
     
-    def v(num : Int) : String = 
-     if (tbl != null && tbl.isConstant(num))       
+    def v(num : Int) : String =
+     if (num <= 0) "TOP"
+     else if (tbl != null && tbl.isConstant(num))
        if (tbl.isStringConstant(num)) "\"" + tbl.getConstantValue(num) + "\"" 
        else tbl.getConstantValue(num) + "" // using + "" instead of .toString() because the constant value can be null
      else "v" + num  
