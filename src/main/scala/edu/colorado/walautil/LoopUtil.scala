@@ -18,8 +18,7 @@ object LoopUtil {
   // TODO: we can cache a lot more here (loop bodies e.t.c) if performance is a problem;
   // there's certainly a lot of redundant computation right now
   val dominatorsCache = new HashMap[IR,Dominators[ISSABasicBlock]]
-  val loopHeaderCache = new HashMap[IR,Set[Int]]   
-  //val doLoopHeaderCache = new HashMap[IR,Set[Int]]
+  val loopHeaderCache = new HashMap[IR,Set[Int]]
   val doLoopHeaderCache = new HashMap[IR,MSet[Int]]
     
   def clearCaches() : Unit = {
@@ -63,90 +62,22 @@ object LoopUtil {
                   assert (succs.size == 2)
                   if (DEBUG) println("succs " + succs(0) + " and " + succs(1))
                   // if either successor has a number greater than the tail, this is a while loop
-                  // TODO: what about breaks? pretty sure this will report do{ loops whose first conditional is a break as while loop
-                  //succs(0).getNumber() < src.getNumber() && succs(1).getNumber() < src.getNumber() 
-                  succs(0).getNumber() <= src.getNumber() && succs(1).getNumber() <= src.getNumber() 
-                  // if one of the successors of the condBlk dominates the loop tail, but the other does not, then
-                  // this is a regular loop; otherwise, this is a do loop
-                  // TODO: breaks and returns in the loop mess this up. ugh. hopefully the hack-y numbers check will fix this
-                  //if either of the succs has a number greater than the number of the tail, this is a regular loop
-                  //succs(0).getNumber() <= dst.getNumber() && succs(1).getNumber() <= dst.getNumber() && {
-                    //val (dom1, dom2) = (domInfo.isDominatedBy(src, succs(0)), domInfo.isDominatedBy(src, succs(1)))
-                    //if (DEBUG) println("condblk " + condBlk + " succs(0) " + succs(0) + " succs(1) " + succs(1) + " dom1? " + dom1 + " dom2? " + dom2)
-                    //assert (dom1 || dom2)
-                    //!(dom1 ^ dom2)
-                  //}
+                  // TODO: what about breaks? pretty sure this will report do{ loops whose first conditional is a break
+                  // as while loop
+                  succs(0).getNumber() <= src.getNumber() && succs(1).getNumber() <= src.getNumber()
                 }
               case None => 
                 if (DEBUG) println("no condBlk; found do ")
                 true
             }}) {
-              //if (DEBUG) println("got do loop " + p.getY())
-              //println("got do loop " + p.getY())
               doLoops.add(p.getY())
             }
-            /*
-            if (CFGUtil.endsWithConditionalInstr(src) && {
-                CFGUtil.getFallThroughBlocks(dst, cfg).find(blk => CFGUtil.endsWithConditionalInstr(blk)) match {
-              case Some(condBlk) =>
-                if (condBlk == src) { println(src + " falls through to do conditional; found do"); true }
-                else {
-                  val succs = CFGUtil.getSuccessors(condBlk, cfg)
-                  assert (succs.size == 2)
-                  // if one of the successors of the condBlk dominates the loop tail, but the other does not, then
-                  // this is a regular loop; otherwise, this is a do loop
-                  // TODO: breaks and returns in the loop mess this up. ugh. hopefully the hack-y numbers check will fix this
-                  //if either of the succs has a number greater than the number of the tail, this is a regular loop
-                  //succs(0).getNumber() <= dst.getNumber() && succs(1).getNumber() <= dst.getNumber() && {
-                    val (dom1, dom2) = (domInfo.isDominatedBy(src, succs(0)), domInfo.isDominatedBy(src, succs(1)))
-                    if (DEBUG) println("condblk " + condBlk + " succs(0) " + succs(0) + " succs(1) " + succs(1) + " dom1? " + dom1 + " dom2? " + dom2)
-                    //assert (dom1 || dom2)
-                    !(dom1 ^ dom2)
-                  //}
-                }
-              case None => true
-            }}) {
-               if (DEBUG) println("got do loop " + p.getY())
-               doLoops.add(p.getY())
-            }
-            */  
-            
-
-            /*
-            // TODO: do something better here. second boolean is especially hack-tastic. 
-            if (CFGUtil.endsWithConditionalInstr(src) && (!CFGUtil.fallsThroughToConditional(dst, cfg) || 
-                CFGUtil.getFallThroughBlocks(src, cfg).contains(src)) && {
-              // get the successor of the conditional that is not part of the back edge
-              val otherSucc = CFGUtil.getSuccessors(src, cfg).filterNot(blk => blk == dst)
-              assert (otherSucc.size == 1)              
-              // if we can't get back to the loop head while ignoring the back edge starting at src and ignoring back edges of outer loops
-              // then this is a do loop
-              !(CFGUtil.getSuccsWhile(otherSucc.head, cfg, 
-                  blk => !backEdges.anyRelated(blk.getNumber()) || blk == dst || {
-                    println("getting back edge with src " + blk)
-                    // ignore back edges of outer loops
-                    val intIter = backEdges.getRelated(blk.getNumber()).intIterator()
-                    var outerLoop = false
-                    while (intIter.hasNext() && !outerLoop) {   
-                      val node = cfg.getNode(intIter.next())
-                      println("is " + dst + " dominated by " + node + " " + domInfo.isDominatedBy(dst, node))
-                      if (dst != node && domInfo.isDominatedBy(dst, node)) outerLoop = true
-                    }
-                    println("outerLoop is " + outerLoop)
-                    !outerLoop
-                  }).contains(dst))}) {
-                  //backEdges.getRelated(blk.getNumber()).contains(p.getY())).contains(dst))}) {
-              // treat the source of the back edge as a sink for the do loop
-              println("got do loop " + p.getY())
-              doLoops.add(p.getY())
-            }*/
             s + p.getY() 
           } else s
         })
       }
       loopHeaderCache.getOrElseUpdate(ir, { 
-        val headers = computeLoopHeaders(ir) 
-        //doLoopHeaderCache.put(ir, doLoops.toSet)
+        val headers = computeLoopHeaders(ir)
         doLoopHeaderCache.put(ir, doLoops)
         headers 
       })
@@ -197,35 +128,7 @@ object LoopUtil {
     
     def isLoopTail(header : WalaBlock, suspectedTail : WalaBlock, ir : IR) : Boolean = 
       getLoopTails(header, ir).contains(suspectedTail)
-            
 
-    /**
-     * get all blocks that transition directly to the loop tail that are *not* continue blocks
-     */
-      /*
-    def getLoopTailBlocks(header : WalaBlock, ir : IR) : Set[WalaBlock] = {
-      require(isLoopHeader(header, ir))
-      val loopTail = getLoopTail(header, ir)
-      val cfg = ir.getControlFlowGraph()      
-      @annotation.tailrec
-      def getLoopTailBlocksRec(blks : Set[WalaBlock], seen : Set[WalaBlock]) : Set[WalaBlock]= {
-        // skip blocks ending in a goto -- these are continues and are not part of the loop tail
-        val passing = blks.filter (blk => blk == loopTail || CFGUtil.endsWithGotoInstr(blk)) 
-        if (passing.isEmpty) seen
-        else {
-          val toExplore = passing.foldLeft (Set.empty[WalaBlock]) ((set,blk) => {
-            val preds = cfg.getNormalPredecessors(blk)
-            if (preds.size() < 2) set ++ preds // keep straight-line predecessors only
-            else set
-          })
-          val newSeen = seen.union(passing)
-          // explore all succs that we have not already seen
-          getLoopTailBlocksRec(toExplore diff newSeen, newSeen)
-        }         
-      }
-      getLoopTailBlocksRec(Set(loopTail), Set.empty)
-    }*/
-    
     def getLoopTailBlocks(tail : WalaBlock, cfg : SSACFG) : Set[WalaBlock] = 
       CFGUtil.getPredsWhile(tail, cfg, blk => cfg.getNormalPredecessors(blk).size() < 2, true)
         
@@ -244,15 +147,13 @@ object LoopUtil {
       // TODO: do we want the condBlk in the body?
       if (isDoWhileLoop(loopHeader, ir)) {
         // the loop body consists of all blocks that are not dominated by the outOfLoop block and are not the conditional
-        //val condBlk = getLoopConditionalBlock(loopHeader, ir).get
-        //getSuccsWhile(intoLoop, cfg, (blk => blk != condBlk && !domInfo.isDominatedBy(blk, outOfLoop)))
         if (intoLoop == loopHeader) {
           val succs = cfg.getNormalSuccessors(intoLoop)
-          assert (succs.size() == 1, "odd number of successors for intoLoopBlk " + intoLoop + " of explicitly infite do loop " + loopHeader)
+          assert (succs.size() == 1,
+                  s"odd number of successors for intoLoopBlk $intoLoop of explicitly infite do loop $loopHeader. IR $ir")
           getLoopConditionalBlock(loopHeader, ir) match {
             case Some(condBlk) => 
               val succ = succs.iterator.next()
-              //CFGUtil.getSuccsWhile(succ, cfg, (blk => !domInfo.isDominatedBy(blk, outOfLoop)))
               CFGUtil.getSuccsWhile(succ, cfg, (blk => blk != condBlk && !domInfo.isDominatedBy(blk, outOfLoop)))
             case None => sys.error("unexpected: no cond blk for do loop " + loopHeader)
           }          
@@ -267,9 +168,6 @@ object LoopUtil {
       } else {
         if (DEBUG) println("getting body; tailBlkNum is " + tailBlkNum)
         // can't just check that block number is less than tailBlkNum because sometimes tailBlk is higher in CFG than a throw or return block
-        // (see LoopThrowNoRefute test)
-        //val body = CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) && (blk.getNumber() <= tailBlkNum ||
-          //CFGUtil.isThrowBlock(blk, cfg))))
 
         val body = 
           if (intoLoop == outOfLoop) 
@@ -281,9 +179,6 @@ object LoopUtil {
         body ensuring (body => !DEBUG || (tailBlkNum == loopHeader.getNumber() || body.contains(cfg.getBasicBlock(tailBlkNum))), "problem with loop body " + body)
         // the above does not work. the problem is that for disjunctive loop conditions, the block protected by the 
         // disjunction is not dominated by intoLoop...
-        // TODO: instead, we rely on block numbers, which is fragile. make this less gross
-        //CFGUtil.getSuccsWhile(intoLoop, cfg, blk => (blk.getNumber() <= tailBlkNum) && blk.getNumber() > loopHeader.getNumber()) ensuring
-          //(x => x.contains(cfg.getBasicBlock(tailBlkNum)), tailBlkNum + " not in loop body")
       }
     }
     
@@ -328,12 +223,9 @@ object LoopUtil {
             CFGUtil.getSuccessors(cfg.getBasicBlock(tailBlkNum), cfg).find(blk => blk.getNumber() > tailBlkNum) match {
               case Some(outOfLoopBlk) => 
                    val outPreds = CFGUtil.getNormalPredecessors(outOfLoopBlk, cfg).toList
-                   //val lowestPred = outPreds.minBy(blk => blk.getNumber())
                    val okPreds = outPreds.filter(pred => pred.getNumber() >= loopHeader.getNumber())
                    assert(!okPreds.isEmpty, s"No predecessors in $outPreds are greater than or equal to $loopHeader: $ir")
                    val lowestPred = okPreds.minBy(blk => blk.getNumber())
-                   //assert (lowestPred.getNumber() >= loopHeader.getNumber(), 
-                      // s"lowest pred $lowestPred higher than loop header $loopHeader outOfLoopBlk $outOfLoopBlk IR $ir")
                    if (CFGUtil.endsWithConditionalInstr(lowestPred) && 
                        CFGUtil.getSuccsWhile(lowestPred, cfg, blk => blk == lowestPred || (blk != outOfLoopBlk && 
                        outPreds.exists(pred => CFGUtil.fallsThroughTo(blk, pred, cfg))), true).contains(maxCond)) last = lowestPred
@@ -359,14 +251,7 @@ object LoopUtil {
                 false
               } else true
               // if the loop is a for (s0; e0; e1) loop, the above check may fail but the e1 part may fall through to the tail block
-              //else if (succs.exists(succ => CFGUtil.fallsThroughTo(succ, cfg.getBasicBlock(tailBlkNum), cfg))) {
-                //last = blk
-                //println("condBlk w/ for loop")
-                //forLoop = true
-              //x}
-              //else last  = null
-              //false 
-            case succs => true //sys.error("unexpected number of successors for block " + blk + ": " + succs.size())
+            case succs => true
           } else {
             // if the loop conditional block is itself another loop head, then this is an explicitly infinite loop 
             last = null;
@@ -382,16 +267,13 @@ object LoopUtil {
       if (last == null || (last.getNumber() > tailBlkNum && tailBlkNum != loopHeader.getNumber()) ||
           !CFGUtil.endsWithConditionalInstr(last)) None 
       else {
-        //assert(CFGUtil.endsWithConditionalInstr(last), 
-          //  s"conditional block $last for loop header $loopHeader should end with conditional. tail block $tailBlkNum IR $ir")
         // TODO: this is fragile. it's possible that last can be a conditional inside of an explicitly
         // infinite loop instead of the loop conditional block. we detect this case by seeing if the 
         // number of the "out of loop block" is less than the number of the loop tail. this relies on the
         // observation that WALA always puts code that occurs after the loop in blocks numbered higher
         // than the loop tail
-        //if (cfg.getNormalSuccessors(last).iterator().next().getNumber() < getLoopTail(loopHeader, ir).getNumber()) None
         if (last != loopHeader && tailBlkNum != loopHeader.getNumber() && !forLoop && !isDoWhileLoop(loopHeader, ir) && loopTails.size == 1 && 
-            cfg.getNormalSuccessors(last).iterator().next().getNumber() < tailBlkNum) {//loopTails.head.getNumber()) {
+            cfg.getNormalSuccessors(last).iterator().next().getNumber() < tailBlkNum) {
           if (DEBUG) println("first succ of " + last + " is higher in CFG than loopTail " + loopTails.head + "; setting to none.")
           None
         }
@@ -426,8 +308,7 @@ object LoopUtil {
             else 
                if (out.getNumber() > in.getNumber()) (out, in) else (in, out)
           }
-          
-          
+
           // if outOf is not greater than the tail block number, then we have a disjunctive loop condition and
           // need to try a bit harder to find the outOf block.
           // TODO: this is fragile and gross 
@@ -463,8 +344,6 @@ object LoopUtil {
       require(isLoopHeader(loopHeader, ir))
       
       val loopBody = getLoopBody(loopHeader, ir)
-      val doLoop = isDoWhileLoop(loopHeader, ir)
-      //val condBlk = getLoopConditionalBlock(loopHeader, ir).get.getNumber()
       if (DEBUG) { println("BODY: "); loopBody.foreach(println) }
       val cfg = ir.getControlFlowGraph()
       val loopHeaders = getLoopHeaders(ir)
@@ -480,10 +359,8 @@ object LoopUtil {
           // loopBlk is header for explicitly infinite loop.
           // it may have an out of loop block (if the loop can be broken out of),
           // but it will not transitioned to by the loop head
-          //cfg.iterator().toList.minBy(blk => blk.getNumber())
           val bodyBlocks = getLoopBody(loopBlk, ir)
           var last : WalaBlock = null
-          //CFGUtil.getSuccsWhile(intoLoopBlk, cfg, blk => { val contains = loopBody.contains(blk); if (!contains) last = blk; blk != loopBlk && contains })
           CFGUtil.getSuccsWhile(intoLoopBlk, cfg, blk => { val contains = loopBody.contains(blk) || blk == loopBlk; if (!contains) last = blk; contains && blk != loopBlk}) 
           if (last == null) map // there is not outOfLoop block; the infinite loop occupies the rest of the procedure
           else map + (last -> loopBlk) // last is an outOfLoop block; add to the map
@@ -491,14 +368,13 @@ object LoopUtil {
       })
       
       val (breaks, continues) = 
-      loopBody.foldLeft (List.empty[BlkPair], List.empty[BlkPair]) ((lstPair : (List[BlkPair], List[BlkPair]) , blk) => { 
-        //if (DEBUG) println("is " + blk + " a break or continue blk?")
+      loopBody.foldLeft (List.empty[BlkPair], List.empty[BlkPair]) ((lstPair : (List[BlkPair], List[BlkPair]) , blk) => {
         
         def processBreakOrContinue(succ : WalaBlock, 
             lstPair : (List[BlkPair], List[BlkPair])) : (List[BlkPair], List[BlkPair]) = {
           val (breaks, continues) = lstPair
           if (!loopBody.contains(succ)) // breaks and continues jump out of the loop body
-            if (domInfo.isDominatedBy(blk, succ)) { //|| fallsThroughToLoopHeadDominating(succ, blk)) {
+            if (domInfo.isDominatedBy(blk, succ)) {
               // if the block we're jumping to dominates the current block, this is a "while/do loop continue"              
               if (DEBUG) println("adding continue " + blk + " transitions to " + succ)
               (breaks, (blk, succ) :: continues)                
@@ -522,57 +398,17 @@ object LoopUtil {
                 } else outOfLoopMap.getOrElse(succ, sys.error("can't find loop header for outOfLoopBlock " + succ))        
                 ((blk, target) :: breaks, continues)                
               } else {
-                val fallThru = CFGUtil.getFallThroughBlocks(succ, cfg);
-                //assert(loopHeaders.exists(blkNum => fallThru.contains(cfg.getBasicBlock(blkNum))), 
-                    //"can't find loop header that is target of continue " + blk + " -> " + succ)
                 // this is a for(s; e0; e1) loop continue; it's continuing to the e1 part 
                 // or, it's a do loop continue
                 if (DEBUG) println("adding for/do loop continue " + blk + " transitions to " + succ)
                 (breaks, (blk, succ) :: continues)                
               }
-            } else lstPair //else if (loopTailBlocks.contains(succ) && !loopTailBlocks.contains(blk)) {
+            } else lstPair
           else lstPair
         }
         
         val succs = cfg.getNormalSuccessors(blk)
         succs.foldLeft (lstPair) ((lstPair, succ) => processBreakOrContinue(succ, lstPair))
-        //if (succs.size() == 1) succs.foldLeft (lstPair) ((lstPair, succ) => processBreakOrContinue(succ, lstPair))
-        //else lstPair
-        /*
-        succs.size() match {
-          case 1 => 
-            val succ = succs.iterator().next()
-            if (!loopBody.contains(succ)) // breaks and continues jump out of the loop body
-              if (domInfo.isDominatedBy(blk, succ)) { //|| fallsThroughToLoopHeadDominating(succ, blk)) {
-                // if the block we're jumping to dominates the current block, this is a "while/do loop continue"              
-                if (DEBUG) println("adding continue " + blk + " transitions to " + succ)
-                (breaks, (blk, succ) :: continues)                
-              } else if (!CFGUtil.endsWithReturnInstr(blk)) {
-                if (loopHeaders.contains(succ.getNumber())) println("loop headers have " + succ)
-                if (outOfLoopMap.contains(succ)) {
-                  if (DEBUG) println("adding break " + blk + " transitions to " + succ)
-                  // this is a break
-                  // target of break is not the block it is transitioning to, but the *header* of the loop
-                  // whose outOf block it is transitioning to
-                  val target = outOfLoopMap.getOrElse(succ, sys.error("can't find loop header for outOfLoopBlock " + succ))
-                  ((blk, target) :: breaks, continues)
-                } else {
-                  val fallThru = CFGUtil.getFallThroughBlocks(succ, cfg);
-                  assert(loopHeaders.find(blkNum => fallThru.contains(cfg.getBasicBlock(blkNum))).isDefined, 
-                         "can't find loop header that is target of continue " + succ)
-                  // this is a for(s; e0; e1) loop continue; it's continuing to the e1 part 
-                   if (DEBUG) println("adding for loop continue " + blk + " transitions to " + succ)
-                  (breaks, (blk, succ) :: continues)                
-                }
-              } else lstPair //else if (loopTailBlocks.contains(succ) && !loopTailBlocks.contains(blk)) {
-              // if the block we're jumping to is inside the loop and it falls through to a 
-              // loop head dominating the current block, this is a "for loop continue"
-              //if (DEBUG) println("adding for loop continue " + blk + " transitions to " + succ)
-              //(breaks, (blk, succ) :: continues)                
-            else lstPair
-          case _ => lstPair
-        } 
-        */
       })
       (breaks, continues)
     }
@@ -586,10 +422,9 @@ object LoopUtil {
     }
     def getBreakAndContinueMap(loopHeader : WalaBlock, ir : IR): Map[WalaBlock,WalaBlock] = {
       val (walaBreaks, walaContinues) = getBreaksAndContinues(loopHeader, ir)
-      walaContinues.foldLeft (walaBreaks.foldLeft (Map.empty[WalaBlock,WalaBlock]) ((map, pair) => map + pair)) ((map, pair) => {
-        //assert (!map.contains(pair._1), pair._1 + " is both a break and a continue!")
+      walaContinues.foldLeft (walaBreaks.foldLeft (Map.empty[WalaBlock,WalaBlock]) ((map, pair) => map + pair)) ((map, pair) =>
         map + pair
-      })
+      )
     }
     
     def getContinueTarget(continueBlk : WalaBlock, cfg : SSACFG) = {
