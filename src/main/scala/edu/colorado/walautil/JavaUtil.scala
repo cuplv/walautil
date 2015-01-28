@@ -125,10 +125,13 @@ object JavaUtil {
       if (entry.isDirectory) new File(outDir, entryPath).mkdirs
       else {
         val istream = jar.getInputStream(entry)
-        val ostream = new FileOutputStream(new File(outDir, entryPath))
-        copyStream(istream, ostream)
-        ostream.close
-        istream.close
+        val f = new File(outDir, entryPath)
+        if (f.exists()) {
+          val ostream = new FileOutputStream(f)
+          copyStream(istream, ostream)
+          ostream.close
+          istream.close
+        }
       }
     }
   }  
