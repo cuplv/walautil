@@ -1,9 +1,9 @@
 package edu.colorado.walautil.cg;
 
 import com.ibm.wala.ipa.callgraph.*;
+import com.ibm.wala.ipa.callgraph.impl.DelegatingContextSelector;
 import com.ibm.wala.ipa.callgraph.propagation.*;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXContainerCFABuilder;
-import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.ssa.*;
 import com.ibm.wala.types.TypeReference;
@@ -20,11 +20,10 @@ public class ImprovedZeroXContainerCFABuilder extends ZeroXContainerCFABuilder {
                                           SSAContextInterpreter appContextInterpreter, int instancePolicy) {
 
     super(cha, options, cache, appContextSelector, appContextInterpreter, instancePolicy);
-  }
-
-  @Override
-  protected ContextSelector makeContainerContextSelector(IClassHierarchy cha, ZeroXInstanceKeys keys) {
-    return new ImprovedContainerContextSelector(cha, keys);
+    if (appContextSelector != null) {
+      DelegatingContextSelector DCS = new DelegatingContextSelector(appContextSelector, contextSelector);
+      setContextSelector(DCS);
+    }
   }
 
   static final class PropSystem extends PropagationSystem {
