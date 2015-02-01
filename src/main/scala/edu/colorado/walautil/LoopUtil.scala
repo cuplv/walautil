@@ -1,6 +1,6 @@
 package edu.colorado.walautil
 
-import edu.colorado.walautil.Types.MSet
+import edu.colorado.walautil.Types.{WalaBlock, MSet}
 
 import scala.collection.JavaConversions.collectionAsScalaIterable
 import scala.collection.JavaConversions.iterableAsScalaIterable
@@ -95,8 +95,7 @@ object LoopUtil {
       if (headers.contains(blkNum)) Some(blk)
       else {
         val succs = CFGUtil.getSuccessors(blk, cfg)
-        val isCond = CFGUtil.endsWithConditionalInstr(blk)
-                
+
         headers.find(headerNum => {
           val header : WalaBlock = cfg.getNode(headerNum)
           CFGUtil.fallsThroughTo(header, blk, cfg) ||
@@ -121,7 +120,7 @@ object LoopUtil {
       val headerNum = header.getNumber()
       val cfg =  ir.getControlFlowGraph()
       val backEdges = Acyclic.computeBackEdges(cfg, cfg.entry())
-      val srcs = backEdges.collect({case intPair if intPair.getY() == headerNum => new WalaBlock(cfg.getBasicBlock(intPair.getX()))})
+      val srcs = backEdges.collect({case intPair if intPair.getY() == headerNum => cfg.getBasicBlock(intPair.getX())})
       assert(!srcs.isEmpty)
       srcs.toList
     }
@@ -130,78 +129,40 @@ object LoopUtil {
       getLoopTails(header, ir).contains(suspectedTail)
 
     def getLoopTailBlocks(tail : WalaBlock, cfg : SSACFG) : Set[WalaBlock] = 
-      CFGUtil.getPredsWhile(tail, cfg, blk => cfg.getNormalPredecessors(blk).size() < 2, true)
+      CFGUtil.getPredsWhile(tail, cfg, blk => cfg.getNormalPredecessors(blk).size() < 2, Set.empty[ISSABasicBlock], true)
         
     // TODO: distinguish between loop header (single basic block that is
     // snk of back edge) and loop conditional block (the block containing the 
     // conditional instruction that controls the loop); there may be blocks in between
-    
-    def getLoopBody(loopHeader : WalaBlock, ir : IR) : Set[WalaBlock] = {
-      require(isLoopHeader(loopHeader, ir))
-      val cfg = ir.getControlFlowGraph()
-      val tailBlkNum = getPrimaryLoopTail(loopHeader, ir)
 
-      val (outOfLoop, intoLoop) = getOutOfAndIntoLoopBlocks(loopHeader, ir)
-      if (DEBUG) println("for BB" + loopHeader.getNumber() + ", intoloop is BB" + intoLoop.getNumber() + " outofloop is BB" + outOfLoop.getNumber())
-      val domInfo = getDominators(ir)
-      // TODO: do we want the condBlk in the body?
-      if (isDoWhileLoop(loopHeader, ir)) {
-        // the loop body consists of all blocks that are not dominated by the outOfLoop block and are not the conditional
-        if (intoLoop == loopHeader) {
-          val succs = cfg.getNormalSuccessors(intoLoop)
-          assert (succs.size() == 1,
-                  s"odd number of successors for intoLoopBlk $intoLoop of explicitly infite do loop $loopHeader. IR $ir")
-          getLoopConditionalBlock(loopHeader, ir) match {
-            case Some(condBlk) => 
-              val succ = succs.iterator.next()
-              CFGUtil.getSuccsWhile(succ, cfg, (blk => blk != condBlk && !domInfo.isDominatedBy(blk, outOfLoop)))
-            case None => sys.error("unexpected: no cond blk for do loop " + loopHeader)
-          }          
-        } else {          
-          assert(intoLoop == outOfLoop) // explicitly infinite loop
-          if (DEBUG) println("explicitly infinite do loop; removing do loop from cache")
-          // we choose to translate all infinite loops as while loops -- take this out of the loop header cache
-          doLoopHeaderCache(ir).remove(loopHeader.getNumber())
-          CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) && (blk.getNumber() <= tailBlkNum || 
-             CFGUtil.isThrowBlock(blk, cfg))))
-        }
-      } else {
-        if (DEBUG) println("getting body; tailBlkNum is " + tailBlkNum)
-        // can't just check that block number is less than tailBlkNum because sometimes tailBlk is higher in CFG than a throw or return block
+  def getLoopBody(loopHeader : ISSABasicBlock, ir : IR) : Set[ISSABasicBlock] =
+    getLoopBody(loopHeader, ir.getControlFlowGraph)
 
-        val body = 
-          if (intoLoop == outOfLoop) 
-            CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) && 
-              (blk.getNumber() <= tailBlkNum || CFGUtil.isThrowBlock(blk, cfg))))
-          else {
-            val intoLoopSuccs = cfg.getNormalSuccessors(intoLoop)
-            if (intoLoopSuccs.size() == 1) {
-              val loopStart = intoLoopSuccs.head
-              CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, loopStart) &&
-                (blk.getNumber() < outOfLoop.getNumber() || CFGUtil.isThrowBlock(blk, cfg)))) + intoLoop
-            } else
-              CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) &&
-                (blk.getNumber() < outOfLoop.getNumber() || CFGUtil.isThrowBlock(blk, cfg))))
-          }
-        body ensuring (body => !DEBUG || (tailBlkNum == loopHeader.getNumber() || body.contains(cfg.getBasicBlock(tailBlkNum))), "problem with loop body " + body)
-        // the above does not work. the problem is that for disjunctive loop conditions, the block protected by the 
-        // disjunction is not dominated by intoLoop...
-      }
-    }
+  def getLoopBody(loopHeader : ISSABasicBlock, cfg : SSACFG) : Set[ISSABasicBlock] = {
+    val backEdges = Acyclic.computeBackEdges(cfg, cfg.entry())
+    val headerNum = loopHeader.getNumber
+    backEdges.foldLeft (Set(loopHeader)) ((s, pair) => {
+      if (pair.getY == headerNum) {
+        val tail = cfg.getBasicBlock(pair.getX)
+        if (s.contains(tail)) s
+        else // walk backward from the tail until we hit the head, adding all blocks encountered to the loop body
+          CFGUtil.getPredsWhile(tail, cfg, blk => blk != loopHeader, s)
+      } else s
+    })
+  }
+
+  def isDoWhileLoop(loopHeader : WalaBlock, ir : IR) : Boolean = {
+    require(isLoopHeader(loopHeader, ir))
+    doLoopHeaderCache.getOrElse(ir, Set.empty[Int]).contains(loopHeader.getNumber())
+  }
     
-    
-    def isDoWhileLoop(loopHeader : WalaBlock, ir : IR) : Boolean = {
-      require(isLoopHeader(loopHeader, ir))
-      doLoopHeaderCache.getOrElse(ir, Set.empty[Int]).contains(loopHeader.getNumber())
-    }
-    
-    // return the loop tail that is lowest in the CFG
-    def getPrimaryLoopTail(loopHeader : WalaBlock, ir : IR) : Int = {
-      val loopTails = getLoopTails(loopHeader, ir)
-      // TODO: this is fragile
-      val tail = loopTails.maxBy(blk => blk.getNumber()).getNumber()
-      if (tail < loopHeader.getNumber()) loopHeader.getNumber() else tail
-    }
+  // return the loop tail that is lowest in the CFG
+  def getPrimaryLoopTail(loopHeader : WalaBlock, ir : IR) : Int = {
+    val loopTails = getLoopTails(loopHeader, ir)
+    // TODO: this is fragile
+    val tail = loopTails.maxBy(blk => blk.getNumber()).getNumber()
+    if (tail < loopHeader.getNumber()) loopHeader.getNumber() else tail
+  }
     
     /**
      * a loop header is a block that is the sink of a back edge, but it may not contain the 
@@ -234,7 +195,7 @@ object LoopUtil {
                    assert(!okPreds.isEmpty, s"No predecessors in $outPreds are greater than or equal to $loopHeader: $ir")
                    val lowestPred = okPreds.minBy(blk => blk.getNumber())
                    if (CFGUtil.endsWithConditionalInstr(lowestPred) && 
-                       CFGUtil.getSuccsWhile(lowestPred, cfg, blk => blk == lowestPred || (blk != outOfLoopBlk && 
+                       CFGUtil.getSuccsWhile(lowestPred, cfg, Set.empty[ISSABasicBlock], blk => blk == lowestPred || (blk != outOfLoopBlk &&
                        outPreds.exists(pred => CFGUtil.fallsThroughTo(blk, pred, cfg))), true).contains(maxCond)) last = lowestPred
                    else last = maxCond
               case None =>
@@ -247,7 +208,7 @@ object LoopUtil {
         }
       } else {
         // the loop conditional block is the last block that the loop header falls through to
-        CFGUtil.getSuccsWhile(loopHeader, cfg, (blk =>
+        CFGUtil.getSuccsWhile(loopHeader, cfg, Set.empty[ISSABasicBlock], (blk =>
           if (blk == loopHeader || !isLoopHeader(blk, ir)) cfg.getNormalSuccessors(blk) match {
             case succs if succs.isEmpty() => false
             case succs if succs.size() == 1 => true
@@ -311,21 +272,26 @@ object LoopUtil {
             val (out, in) = (iter.next(), iter.next())
             if (isDoWhileLoop(loopHeader, ir)) {
               (in, loopHeader : ISSABasicBlock)
-            }
-            else 
-               if (out.getNumber() > in.getNumber()) (out, in) else (in, out)
+            } else
+              if (out.getNumber() > in.getNumber()) (out, in) else (in, out)
           }
 
           // if outOf is not greater than the tail block number, then we have a disjunctive loop condition and
           // need to try a bit harder to find the outOf block.
           // TODO: this is fragile and gross 
           val tailBlkNum = getPrimaryLoopTail(loopHeader, ir)      
-          if (DEBUG) println("at this point, outOf " + outOf + " and into " + into + " tailBlkNum " + tailBlkNum)
+          if (DEBUG) println(s"at this point, outOf $outOf and into $into tailBlkNum $tailBlkNum")
 
           
           if (outOf.getNumber() < tailBlkNum) {
             var last : WalaBlock = null
-            CFGUtil.getSuccsWhile(outOf, cfg, blk => { val found = blk.getNumber() > tailBlkNum; if (found) last = blk; !found})
+            CFGUtil.getSuccsWhile(outOf, cfg, Set.empty[ISSABasicBlock],
+              (blk : WalaBlock) => {
+                val found = blk.getNumber() > tailBlkNum
+                if (found) last = blk
+                !found
+              }
+            )
             assert (last != null)
             (last, into)
           } else (outOf, into)
@@ -336,107 +302,6 @@ object LoopUtil {
           val succ = succs.iterator().next()
           (succ, succ) // explicitly infinite loop
       }
-    } 
-    
-    type BlkPair = (WalaBlock,WalaBlock)
-    
-    /**
-     * @return ((breaks, break target) list, (continue, continue target) list) pair
-     * This returns *all* breaks and continues in the body of the loop headed by @param loopHeader,
-     * not only the ones that break out of the current loop or continue to the head of the current loop.
-     * For example, in the program outer : while (...) { inner : while (...) { break outer; } },
-     * getBreaksAndContinues([header for inner]) will include "break outer" 
-     */
-    def getBreaksAndContinues(loopHeader : WalaBlock, ir : IR) : (List[BlkPair], List[BlkPair]) = {
-      require(isLoopHeader(loopHeader, ir))
-      
-      val loopBody = getLoopBody(loopHeader, ir)
-      if (DEBUG) { println("BODY: "); loopBody.foreach(println) }
-      val cfg = ir.getControlFlowGraph()
-      val loopHeaders = getLoopHeaders(ir)
-      val domInfo = getDominators(ir)      
-      
-      // TODO: two loops can have the same outOfLoop block...
-      // map of outOfLoopBlock for loop n -> loopHeader for loop n
-      val outOfLoopMap = loopHeaders.foldLeft (Map.empty[WalaBlock,WalaBlock]) ((map, loopHeader) => {
-        val loopBlk : WalaBlock = cfg.getNode(loopHeader)
-        val (outOfLoopBlk, intoLoopBlk) = getOutOfAndIntoLoopBlocks(loopBlk, ir)
-        if (outOfLoopBlk == intoLoopBlk) {
-          if (DEBUG) println("triggered special case; looking for outofloop block for " + loopHeader)
-          // loopBlk is header for explicitly infinite loop.
-          // it may have an out of loop block (if the loop can be broken out of),
-          // but it will not transitioned to by the loop head
-          var last : WalaBlock = null
-          CFGUtil.getSuccsWhile(intoLoopBlk, cfg, blk => { val contains = loopBody.contains(blk) || blk == loopBlk; if (!contains) last = blk; contains && blk != loopBlk}) 
-          if (last == null) map // there is not outOfLoop block; the infinite loop occupies the rest of the procedure
-          else map + (last -> loopBlk) // last is an outOfLoop block; add to the map
-        } else map + (outOfLoopBlk -> loopBlk)
-      })
-      
-      val (breaks, continues) = 
-      loopBody.foldLeft (List.empty[BlkPair], List.empty[BlkPair]) ((lstPair : (List[BlkPair], List[BlkPair]) , blk) => {
-        
-        def processBreakOrContinue(succ : WalaBlock, 
-            lstPair : (List[BlkPair], List[BlkPair])) : (List[BlkPair], List[BlkPair]) = {
-          val (breaks, continues) = lstPair
-          if (!loopBody.contains(succ)) // breaks and continues jump out of the loop body
-            if (domInfo.isDominatedBy(blk, succ)) {
-              // if the block we're jumping to dominates the current block, this is a "while/do loop continue"              
-              if (DEBUG) println("adding continue " + blk + " transitions to " + succ)
-              (breaks, (blk, succ) :: continues)                
-            } else if (!CFGUtil.endsWithReturnInstr(blk)) {
-              if (outOfLoopMap.contains(succ)) {
-                if (DEBUG) println("adding break " + blk + " transitions to " + succ)
-                // this is a break
-                // target of break is not the block it is transitioning to, but the *header* of the loop
-                // whose outOf block it is transitioning to
-                val target = if (isLoopHeader(blk, ir)) {
-                  // rare case where a loop header is itself a break
-                  // can't use outOfLoopMap here because two loops may have the same out of loop block.
-                  loopHeaders.find(blkNum => blkNum != blk.getNumber() && {
-                    val loopBlk = cfg.getNode(blkNum)
-                    val (outOfLoopBlk, _) = getOutOfAndIntoLoopBlocks(loopBlk, ir)
-                    outOfLoopBlk == succ
-                  }) match {
-                    case Some(headerNum) => new WalaBlock(cfg.getNode(headerNum))
-                    case None => sys.error("can't find loop header for outOfLoopBlock " + succ)
-                  }
-                } else outOfLoopMap.getOrElse(succ, sys.error("can't find loop header for outOfLoopBlock " + succ))        
-                ((blk, target) :: breaks, continues)                
-              } else {
-                // this is a for(s; e0; e1) loop continue; it's continuing to the e1 part 
-                // or, it's a do loop continue
-                if (DEBUG) println("adding for/do loop continue " + blk + " transitions to " + succ)
-                (breaks, (blk, succ) :: continues)                
-              }
-            } else lstPair
-          else lstPair
-        }
-        
-        val succs = cfg.getNormalSuccessors(blk)
-        succs.foldLeft (lstPair) ((lstPair, succ) => processBreakOrContinue(succ, lstPair))
-      })
-      (breaks, continues)
-    }
-    
-    def getBreaks(loopHeader : WalaBlock, ir : IR) : List[BlkPair] = getBreaksAndContinues(loopHeader, ir)._1    
-    def getContinues(loopHeader : WalaBlock, ir : IR) : List[BlkPair] = getBreaksAndContinues(loopHeader, ir)._2
-    // get the sources of all break and continue pairs for this loop header 
-    def getBreakAndContinueSources(loopHeader : WalaBlock, ir : IR): Set[WalaBlock] = {
-      val (walaBreaks, walaContinues) = getBreaksAndContinues(loopHeader, ir)
-      walaBreaks.foldLeft (walaContinues.unzip._1) ((lst, pair) => pair._1 :: lst).toSet
-    }
-    def getBreakAndContinueMap(loopHeader : WalaBlock, ir : IR): Map[WalaBlock,WalaBlock] = {
-      val (walaBreaks, walaContinues) = getBreaksAndContinues(loopHeader, ir)
-      walaContinues.foldLeft (walaBreaks.foldLeft (Map.empty[WalaBlock,WalaBlock]) ((map, pair) => map + pair)) ((map, pair) =>
-        map + pair
-      )
-    }
-    
-    def getContinueTarget(continueBlk : WalaBlock, cfg : SSACFG) = {
-      val succs = cfg.getNormalSuccessors(continueBlk)
-      assert (succs.size() == 1)
-      succs.iterator().next()
     }
         
   }

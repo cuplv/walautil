@@ -9,16 +9,19 @@ import com.ibm.wala.util.graph.dominators.Dominators
 import com.ibm.wala.util.graph.impl.GraphInverter
 import com.ibm.wala.util.graph.traverse.{BFSPathFinder, DFS}
 import com.ibm.wala.util.graph.{Acyclic, Graph, NumberedGraph}
+import edu.colorado.walautil.Types._
 
-import scala.collection.JavaConversions.{collectionAsScalaIterable, iterableAsScalaIterable, _}
+
+import scala.collection.JavaConversions._
 
 
 object CFGUtil {
   
   val DEBUG = false
   
-  private def getWhile(succOrPred : (SSACFG, WalaBlock) => Set[WalaBlock], startBlk : WalaBlock, 
-                          cfg : SSACFG, test : WalaBlock => Boolean, inclusive : Boolean) : Set[WalaBlock] = {
+  private def getWhile(succOrPred : (SSACFG, WalaBlock) => Set[WalaBlock], startBlk : WalaBlock,
+                       startSet : Set[ISSABasicBlock], cfg : SSACFG, test : WalaBlock => Boolean,
+                       inclusive : Boolean) : Set[WalaBlock] = {
     @annotation.tailrec
     def getWhileRec(blks : Set[WalaBlock], seen : Set[WalaBlock]) : Set[WalaBlock]= {
       val (passing, failing) = blks.partition(blk => test(blk))    
@@ -30,31 +33,33 @@ object CFGUtil {
         getWhileRec(toExplore diff newSeen, newSeen)
       }
     }
-    getWhileRec(Set(startBlk), Set.empty)
+    getWhileRec(startSet + startBlk, Set.empty)
   }
 
   /**
    * @param inclusive if true, include the last blks that fail test 
    * @return transitive closure of successors of startBlk in cfg that pass test
    */
-  def getSuccsWhile(startBlk : WalaBlock, cfg : SSACFG, test : WalaBlock => Boolean = _ => true, 
+  def getSuccsWhile(startBlk : WalaBlock, cfg : SSACFG, startSet : Set[ISSABasicBlock] = Set.empty[ISSABasicBlock],
+                    test : WalaBlock => Boolean = _ => true,
       inclusive : Boolean = false) : Set[WalaBlock] = 
-    getWhile((cfg, blk) => getSuccessors(blk, cfg).toSet, startBlk, cfg, test, inclusive)
+    getWhile((cfg, blk) => getSuccessors(blk, cfg).toSet, startBlk, startSet, cfg, test, inclusive)
 
     /**
      * @param inclusive if true, return the last blks that fail test 
      * @return transitive closure of predecessors of startBlk in cfg that pass test
      */
-  def getPredsWhile(startBlk : WalaBlock, cfg : SSACFG, test : WalaBlock => Boolean, inclusive : Boolean = false, exceptional : Boolean = false) : Set[WalaBlock] =    
-    getWhile((cfg, blk) => 
-      (if (exceptional) cfg.getPredNodes(blk.blk).toList else cfg.getNormalPredecessors(blk.blk).toList)
-      .map(blk => new WalaBlock(blk)).toSet, startBlk, cfg, test, inclusive)
+  def getPredsWhile(startBlk : WalaBlock, cfg : SSACFG, test : WalaBlock => Boolean,
+                    startSet : Set[ISSABasicBlock] = Set.empty[WalaBlock], inclusive : Boolean = false,
+                    exceptional : Boolean = false) : Set[WalaBlock] =
+    getWhile((cfg, blk) => (if (exceptional) cfg.getPredNodes(blk).toList else cfg.getNormalPredecessors(blk).toList).toSet,
+             startBlk, startSet, cfg, test, inclusive)
 
   def getFallThroughBlocks(startBlk : WalaBlock, cfg : SSACFG, inclusive : Boolean = false, test : WalaBlock => Boolean =_ => true) : Set[WalaBlock] = {
     var last : WalaBlock = null
     // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
     val fallThrough =
-      getSuccsWhile(startBlk, cfg, (blk => { if (!test(blk)) { last = blk; false } else {
+      getSuccsWhile(startBlk, cfg, Set.empty[WalaBlock], (blk => { if (!test(blk)) { last = blk; false } else {
         val size = getSuccessors(blk, cfg).size
         if (size <= 1) true
         else { last = blk; false}
@@ -99,8 +104,9 @@ object CFGUtil {
         }
       else succs
     }
-    getWhile((cfg, blk) => getSuccs(blk, cfg).toSet, startBlk, cfg, blk => (bodyBlocks.isEmpty || bodyBlocks.contains(blk))
-      && !breaksAndContinues.contains(blk) || endsWithConditionalInstr(blk), inclusive)
+    getWhile((cfg, blk) => getSuccs(blk, cfg).toSet, startBlk, Set.empty[ISSABasicBlock], cfg,
+      blk => (bodyBlocks.isEmpty || bodyBlocks.contains(blk))
+             && !breaksAndContinues.contains(blk) || endsWithConditionalInstr(blk), inclusive)
   }
           
   /**
@@ -130,7 +136,7 @@ object CFGUtil {
   /**
    * @return true if @param src falls through to exit block
    */
-  def isExitBlock(src : WalaBlock, cfg : SSACFG) : Boolean = fallsThroughTo(src, new WalaBlock(cfg.exit().asInstanceOf[ISSABasicBlock]), cfg)
+  def isExitBlock(src : WalaBlock, cfg : SSACFG) : Boolean = fallsThroughTo(src, cfg.exit().asInstanceOf[ISSABasicBlock], cfg)
     
   /**
    * @return true if @param src falls through to a throw block
@@ -138,12 +144,23 @@ object CFGUtil {
   def isThrowBlock(src : WalaBlock, cfg : SSACFG) : Boolean = {
     var last : WalaBlock = src
     // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
-    getSuccsWhile(src, cfg, (blk => {
+    getSuccsWhile(src, cfg, Set.empty[ISSABasicBlock], (blk => {
       val size = getSuccessors(blk, cfg).size
       if (size == 1) true
       else { last = blk; false}
     }))
     endsWithThrowInstr(last)
+  }
+
+  def isReturnBlock(src : WalaBlock, cfg : SSACFG) : Boolean = {
+    var last : WalaBlock = src
+    // want to do getSuccsWhile(succs.size == 1, but we also want the last block that fails the test to be included
+    getSuccsWhile(src, cfg, Set.empty[ISSABasicBlock], (blk => {
+      val size = getSuccessors(blk, cfg).size
+      if (size == 1) true
+      else { last = blk; false}
+    }))
+    endsWithReturnInstr(last)
   }
 
   /** @return true if @param b is a block containing a conditional or switch instruction */
@@ -158,11 +175,11 @@ object CFGUtil {
    * @return true if a catch block falls through to @param snk
    */
   def catchBlockFallsThroughTo(snk : WalaBlock, cfg : SSACFG) : Boolean =
-    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getFallThroughBlocks(new WalaBlock(blk), cfg))
+    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getFallThroughBlocks(blk, cfg))
     .contains(snk)
     
   def catchBlockTransitionsTo(snk : WalaBlock, cfg : SSACFG) : Boolean =
-    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getSuccsWhile(new WalaBlock(blk), cfg))
+    getCatchBlocks(cfg).foldLeft (Set.empty[WalaBlock]) ((set, blk) => set ++ getSuccsWhile(blk, cfg))
     .contains(snk)
 
 
@@ -270,15 +287,14 @@ object CFGUtil {
    * a successor of "blk(v1 = new Exception)". This method is meant to correct this
    */
   def getSuccessors(blk : WalaBlock, cfg : SSACFG) = {
-    cfg.getExceptionalSuccessors(blk.blk).foldLeft (cfg.getNormalSuccessors(blk.blk).map(succ => new WalaBlock(succ)).toList) ((lst, succ) => {
-      val walaBlk = new WalaBlock(succ)
-      if (endsWithThrowInstr(walaBlk) && !walaBlk.isCatchBlock()) walaBlk :: lst
+    cfg.getExceptionalSuccessors(blk).foldLeft (cfg.getNormalSuccessors(blk).toList) ((lst, succ) => {
+      if (endsWithThrowInstr(succ) && !succ.isCatchBlock()) succ :: lst
       else lst
     })
   }
       
   def getNormalPredecessors(blk : WalaBlock, cfg : SSACFG) : Iterable[WalaBlock] = 
-    cfg.getNormalPredecessors(blk.blk).map(blk => new WalaBlock(blk))  
+    cfg.getNormalPredecessors(blk)
       
   def getThenBranch(blk : ISSABasicBlock, cfg : SSACFG) = getSuccessors(blk, cfg)(0)
   
