@@ -173,9 +173,16 @@ object LoopUtil {
           if (intoLoop == outOfLoop) 
             CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) && 
               (blk.getNumber() <= tailBlkNum || CFGUtil.isThrowBlock(blk, cfg))))
-          else 
-            CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) && 
-              (blk.getNumber() < outOfLoop.getNumber() || CFGUtil.isThrowBlock(blk, cfg))))
+          else {
+            val intoLoopSuccs = cfg.getNormalSuccessors(intoLoop)
+            if (intoLoopSuccs.size() == 1) {
+              val loopStart = intoLoopSuccs.head
+              CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, loopStart) &&
+                (blk.getNumber() < outOfLoop.getNumber() || CFGUtil.isThrowBlock(blk, cfg)))) + intoLoop
+            } else
+              CFGUtil.getSuccsWhile(intoLoop, cfg, (blk => domInfo.isDominatedBy(blk, intoLoop) &&
+                (blk.getNumber() < outOfLoop.getNumber() || CFGUtil.isThrowBlock(blk, cfg))))
+          }
         body ensuring (body => !DEBUG || (tailBlkNum == loopHeader.getNumber() || body.contains(cfg.getBasicBlock(tailBlkNum))), "problem with loop body " + body)
         // the above does not work. the problem is that for disjunctive loop conditions, the block protected by the 
         // disjunction is not dominated by intoLoop...
@@ -359,7 +366,6 @@ object LoopUtil {
           // loopBlk is header for explicitly infinite loop.
           // it may have an out of loop block (if the loop can be broken out of),
           // but it will not transitioned to by the loop head
-          val bodyBlocks = getLoopBody(loopBlk, ir)
           var last : WalaBlock = null
           CFGUtil.getSuccsWhile(intoLoopBlk, cfg, blk => { val contains = loopBody.contains(blk) || blk == loopBlk; if (!contains) last = blk; contains && blk != loopBlk}) 
           if (last == null) map // there is not outOfLoop block; the infinite loop occupies the rest of the procedure
