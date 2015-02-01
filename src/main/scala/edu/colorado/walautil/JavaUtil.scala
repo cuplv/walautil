@@ -126,12 +126,10 @@ object JavaUtil {
       else {
         val istream = jar.getInputStream(entry)
         val f = new File(outDir, entryPath)
-        if (f.exists()) {
-          val ostream = new FileOutputStream(f)
-          copyStream(istream, ostream)
-          ostream.close
-          istream.close
-        }
+        val ostream = new FileOutputStream(f)
+        copyStream(istream, ostream)
+        ostream.close
+        istream.close
       }
     }
   }  
