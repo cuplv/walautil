@@ -54,6 +54,11 @@ object ClassUtil {
   def isInnerClassThis(f : IField) : Boolean = isInnerClassThis(f.getReference)
 
   def isInnerOrEnum(c : IClass) : Boolean = c.getName().toString().contains('$')
+
+  def isEnum(t : TypeReference, cha : IClassHierarchy) : Boolean = isEnum(cha.lookupClass(t), cha)
+
+  def isEnum(c : IClass, cha : IClassHierarchy) : Boolean =
+    cha.isSubclassOf(c, cha.lookupClass(TypeReference.JavaLangEnum))
   
   // TODO: Can we use WALA's StringStuff class to do some of these?
   // WALA uses leading L's in class names and /'s instead of .'s
