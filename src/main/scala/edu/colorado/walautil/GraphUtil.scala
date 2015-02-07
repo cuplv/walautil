@@ -1,7 +1,7 @@
 package edu.colorado.walautil
 
 import com.ibm.wala.util.graph.Graph
-import com.ibm.wala.util.graph.traverse.BoundedBFSIterator
+import com.ibm.wala.util.graph.traverse.{BFSIterator, BoundedBFSIterator}
 
 object GraphUtil {
 
@@ -23,5 +23,11 @@ object GraphUtil {
     }
     false
   }
+
+  /* perform a fold over nodes returned by WALA's BFSIterator **/
+  @annotation.tailrec
+  final def bfsIterFold[T1,T2](iter : BFSIterator[T1], acc : T2, f : (T2, T1) => T2) : T2 =
+    if (iter.hasNext) bfsIterFold(iter, f(acc, iter.next()), f)
+    else acc
   
 }
