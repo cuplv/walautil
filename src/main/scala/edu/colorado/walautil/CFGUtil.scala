@@ -185,8 +185,8 @@ object CFGUtil {
 
 
   // general template for checking simple cfg structural properties interprocedurally
-  private def interprocCheck(intraProcCheck : (ISSABasicBlock, SSACFG) => Boolean, startBlk : ISSABasicBlock,
-                             n : CGNode, cg : CallGraph, cgNodeFilter : CGNode => Boolean) : Boolean =
+  def interprocCheck(intraProcCheck : (ISSABasicBlock, SSACFG) => Boolean, startBlk : ISSABasicBlock,
+                     n : CGNode, cg : CallGraph, cgNodeFilter : CGNode => Boolean) : Boolean =
     // check is true if it is true intraprocedurally...
     intraProcCheck(startBlk, n.getIR.getControlFlowGraph) || {
       // ...or interprocedurally at each caller
