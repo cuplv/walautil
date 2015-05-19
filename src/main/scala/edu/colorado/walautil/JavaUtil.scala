@@ -3,6 +3,7 @@ package edu.colorado.walautil
 import java.io.{File, FileInputStream, FileOutputStream, InputStream, OutputStream}
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import javax.tools.{DiagnosticCollector, JavaFileObject, ToolProvider}
+import org.apache.commons.io.IOUtils
 
 import scala.collection.JavaConversions._
 
@@ -132,6 +133,16 @@ object JavaUtil {
         istream.close
       }
     }
-  }  
+  }
+
+  def getResourceAsFile(name : String, c : Class[_]) : File = {
+    val tmpFile = File.createTempFile("tmp_", name)
+    val in = c.getResourceAsStream(s"${File.separator}$name")
+    val out = new FileOutputStream(tmpFile)
+    IOUtils.copy(in, out)
+    in.close()
+    out.close()
+    tmpFile
+  }
  
 }
