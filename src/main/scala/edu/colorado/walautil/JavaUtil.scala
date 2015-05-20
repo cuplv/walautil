@@ -3,7 +3,6 @@ package edu.colorado.walautil
 import java.io.{File, FileInputStream, FileOutputStream, InputStream, OutputStream}
 import java.util.jar.{JarEntry, JarFile, JarOutputStream}
 import javax.tools.{DiagnosticCollector, JavaFileObject, ToolProvider}
-import org.apache.commons.io.IOUtils
 
 import scala.collection.JavaConversions._
 
@@ -99,17 +98,17 @@ object JavaUtil {
     outStream.close()    
     jars.foreach(jar => jar.close())
   }
+
+  private def copyStream(istream : InputStream, ostream : OutputStream) : Unit = {
+    val bytes =  new Array[Byte](1024)
+    var len = -1
+    while({ len = istream.read(bytes, 0, 1024); len != -1 })
+      ostream.write(bytes, 0, len)
+  }
    
   // TODO: this is not very robust -- crashes unless the input Jar is nicely sorted so that directory
   // entries always occur before their children. probably better to just use the command line jar utility
   def extractJar(jarFile : File, outPath : String) : Unit = {
-    def copyStream(istream : InputStream, ostream : OutputStream) : Unit = {
-      val bytes =  new Array[Byte](1024)
-      var len = -1
-      while({ len = istream.read(bytes, 0, 1024); len != -1 })
-        ostream.write(bytes, 0, len)
-    }
-    
     val basename = jarFile.getName.substring(0, jarFile.getName.lastIndexOf("."))
     val outDir = new File(outPath) //new File(file.getParentFile, basename)
     val jar = new JarFile(jarFile)
@@ -139,7 +138,7 @@ object JavaUtil {
     val tmpFile = File.createTempFile("tmp_", name)
     val in = c.getResourceAsStream(s"${File.separator}$name")
     val out = new FileOutputStream(tmpFile)
-    IOUtils.copy(in, out)
+    copyStream(in, out)
     in.close()
     out.close()
     tmpFile

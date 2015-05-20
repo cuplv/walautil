@@ -13,5 +13,4 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 libraryDependencies ++= Seq(
 	"com.ibm.wala" % "com.ibm.wala.shrike" % "1.3.7-SNAPSHOT",
 	"com.ibm.wala" % "com.ibm.wala.util" % "1.3.7-SNAPSHOT",
-	"com.ibm.wala" % "com.ibm.wala.core" % "1.3.7-SNAPSHOT",
-        "commons-io" % "commons-io" % "1.3.2")
+	"com.ibm.wala" % "com.ibm.wala.core" % "1.3.7-SNAPSHOT")
