@@ -17,8 +17,11 @@ object CHAUtil {
       t0 == TypeReference.Void || t0 == TypeReference.JavaLangObject
     case _ =>          
       val (c0, c1) = (cha.lookupClass(t0), cha.lookupClass(t1))
-      c0 != null && c1 != null && cha.isAssignableFrom(c0, c1)
+      isAssignableFrom(c0, c1, cha)
   }
+
+  def isAssignableFrom(c0 : IClass, c1 : IClass, cha : IClassHierarchy) : Boolean =
+    c0 != null && c1 != null && cha.isAssignableFrom(c0, c1)
   
   /** @return true if method @param m may override a method in class @param c, false otherwise */
   // this is complicated because covariance in return type is allowed (for all methods), and covariance in parameter types
